@@ -9,6 +9,25 @@ backend/dist/
 # Environment files
 *.env
 
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # System files
 .DS_Store
 Thumbs.db
+
+# Prisma (keep schema + migrations, ignore generated JS client)
+# We DO want prisma/schema.prisma and prisma/migrations/** because
+#   - schema.prisma = your DB schema definition
+#   - migrations = versioned SQL (exam requires this!)
+# Prisma client is re-generated, so we ignore the output folder.
+backend/src/generated/
+
+# Vite
+frontend/.vite/
+
+# Misc editor/project files
+.vscode/
+.idea/
