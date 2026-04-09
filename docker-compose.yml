@@ -1,0 +1,98 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: tripbuddy-frontend
+    ports:
+      - "${FRONTEND_PORT}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - gateway
+
+  gateway:
+    build:
+      context: ./services/gateway
+    container_name: tripbuddy-gateway
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    volumes:
+      - ./services/gateway:/app
+      - /app/node_modules
+    env_file:
+      - .env
+    depends_on:
+      - identity-service
+      - trip-service
+      - integration-service
+
+  identity-service:
+    build:
+      context: ./services/identity-service
+    container_name: tripbuddy-identity-service
+    ports:
+      - "${IDENTITY_SERVICE_PORT}:${IDENTITY_SERVICE_PORT}"
+    volumes:
+      - ./services/identity-service:/app
+      - /app/node_modules
+    env_file:
+      - .env
+    depends_on:
+      - identity-db
+
+  trip-service:
+    build:
+      context: ./services/trip-service
+    container_name: tripbuddy-trip-service
+    ports:
+      - "${TRIP_SERVICE_PORT}:${TRIP_SERVICE_PORT}"
+    volumes:
+      - ./services/trip-service:/app
+      - /app/node_modules
+    env_file:
+      - .env
+    depends_on:
+      - trip-db
+
+  integration-service:
+    build:
+      context: ./services/integration-service
+    container_name: tripbuddy-integration-service
+    ports:
+      - "${INTEGRATION_SERVICE_PORT}:${INTEGRATION_SERVICE_PORT}"
+    volumes:
+      - ./services/integration-service:/app
+      - /app/node_modules
+    env_file:
+      - .env
+
+  identity-db:
+    image: postgres:16
+    container_name: tripbuddy-identity-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${IDENTITY_DB_NAME}
+      POSTGRES_USER: ${IDENTITY_DB_USER}
+      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD}
+    ports:
+      - "${IDENTITY_DB_PORT}:5432"
+    volumes:
+      - identity_db_data:/var/lib/postgresql/data
+
+  trip-db:
+    image: postgres:16
+    container_name: tripbuddy-trip-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TRIP_DB_NAME}
+      POSTGRES_USER: ${TRIP_DB_USER}
+      POSTGRES_PASSWORD: ${TRIP_DB_PASSWORD}
+    ports:
+      - "${TRIP_DB_PORT}:5432"
+    volumes:
+      - trip_db_data:/var/lib/postgresql/data
+
+volumes:
+  identity_db_data:
+  trip_db_data:
