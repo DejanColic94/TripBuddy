@@ -1,11 +1,10 @@
+import "./env";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes";
-
-dotenv.config();
+import { testConnection } from "./db";
 
 const app = express();
 const PORT = process.env.IDENTITY_SERVICE_PORT || 4001;
@@ -30,6 +29,7 @@ app.get("/", (_req, res) => {
 
 app.use("/", authRoutes);
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Identity service running on port ${PORT}`);
+  await testConnection();
 });
