@@ -32,6 +32,7 @@ export async function initDb(): Promise<void> {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    console.log("[DB] Users table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize identity database:", error);
   }
