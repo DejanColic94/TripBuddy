@@ -1,5 +1,8 @@
+import bcrypt from "bcrypt";
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import pool from "../db";
+import authMiddleware from "../middleware/authMiddleware";
 
 const router = Router();
 
@@ -19,9 +22,10 @@ router.post("/register", async (req, res) => {
   }
 
   try {
+    const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
       "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, role;",
-      [email, password]
+      [email, hashedPassword]
     );
 
     return res.status(201).json({
@@ -63,15 +67,27 @@ router.post("/login", async (req, res) => {
     );
     const user = result.rows[0];
 
-    if (!user || user.password !== password) {
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(400).json({
         message: "Invalid credentials",
       });
     }
 
+    const jwtSecret = process.env.IDENTITY_JWT_SECRET;
+
+    if (!jwtSecret) {
+      throw new Error("IDENTITY_JWT_SECRET is not set");
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      jwtSecret,
+      { expiresIn: "1h" }
+    );
+
     return res.status(200).json({
       message: "Login successful",
-      token: "fake-jwt-token-for-now",
+      token,
       user: {
         id: user.id,
         email: user.email,
@@ -86,12 +102,14 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.get("/me", (_req, res) => {
-  return res.status(200).json({
-    id: 1,
-    email: "test@test.com",
-    role: "user",
-  });
+router.get("/me", authMiddleware, (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+
+  return res.status(200).json(req.user);
 });
 
 export default router;
