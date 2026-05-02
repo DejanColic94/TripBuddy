@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.GATEWAY_PORT || 4000;
 
 const IDENTITY_SERVICE_URL =
-  process.env.IDENTITY_SERVICE_URL || "http://identity-service:4001";
+  process.env.IDENTITY_SERVICE_URL || "http://localhost:4001";
 
 app.use(cors());
 app.use(helmet());
@@ -26,12 +26,12 @@ app.get("/health", (_req, res) => {
 });
 
 app.use(
-  "/api/auth",
+  "/auth",
   createProxyMiddleware({
     target: IDENTITY_SERVICE_URL,
     changeOrigin: true,
     pathRewrite: {
-      "^/api/auth": "",
+      "^/auth": "",
     },
     on: {
       proxyReq: fixRequestBody,
