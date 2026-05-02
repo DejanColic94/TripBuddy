@@ -47,7 +47,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -56,15 +56,34 @@ router.post("/login", (req, res) => {
     });
   }
 
-  return res.status(200).json({
-    message: "Login successful",
-    token: "fake-jwt-token-for-now",
-    user: {
-      id: 1,
-      email,
-      role: "user",
-    },
-  });
+  try {
+    const result = await pool.query(
+      "SELECT id, email, password, role FROM users WHERE email = $1;",
+      [email]
+    );
+    const user = result.rows[0];
+
+    if (!user || user.password !== password) {
+      return res.status(400).json({
+        message: "Invalid credentials",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Login successful",
+      token: "fake-jwt-token-for-now",
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("[IDENTITY] Login failed:", error);
+    return res.status(500).json({
+      message: "Failed to login",
+    });
+  }
 });
 
 router.get("/me", (_req, res) => {
