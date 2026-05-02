@@ -4,7 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import authRoutes from "./routes/authRoutes";
-import { testConnection } from "./db";
+import { initDb, testConnection } from "./db";
 
 const app = express();
 const PORT = process.env.IDENTITY_SERVICE_PORT || 4001;
@@ -32,4 +32,5 @@ app.use("/", authRoutes);
 app.listen(PORT, async () => {
   console.log(`Identity service running on port ${PORT}`);
   await testConnection();
+  await initDb();
 });

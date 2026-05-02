@@ -21,4 +21,20 @@ export async function testConnection(): Promise<void> {
   }
 }
 
+export async function initDb(): Promise<void> {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'user',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (error) {
+    console.error("[DB] Failed to initialize identity database:", error);
+  }
+}
+
 export default pool;
