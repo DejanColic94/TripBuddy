@@ -1,4 +1,5 @@
 import { Router } from "express";
+import pool from "../db";
 
 const router = Router();
 
@@ -8,7 +9,7 @@ router.get("/test", (_req, res) => {
   });
 });
 
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -17,14 +18,33 @@ router.post("/register", (req, res) => {
     });
   }
 
-  return res.status(201).json({
-    message: "User registered successfully",
-    user: {
-      id: 1,
-      email,
-      role: "user",
-    },
-  });
+  try {
+    const result = await pool.query(
+      "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, role;",
+      [email, password]
+    );
+
+    return res.status(201).json({
+      message: "User registered successfully",
+      user: result.rows[0],
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return res.status(400).json({
+        message: "User already exists",
+      });
+    }
+
+    console.error("[IDENTITY] Register failed:", error);
+    return res.status(500).json({
+      message: "Failed to register user",
+    });
+  }
 });
 
 router.post("/login", (req, res) => {
