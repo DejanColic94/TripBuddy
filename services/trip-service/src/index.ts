@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { initDb, testConnection } from "./db";
+import tripsRouter from "./routes/trips";
 
 const app = express();
 const PORT = process.env.TRIP_SERVICE_PORT || 4002;
@@ -16,6 +17,8 @@ app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ service: "trip-service", status: "ok" });
 });
+
+app.use("/trips", tripsRouter);
 
 app.listen(PORT, async () => {
   console.log(`Trip service running on port ${PORT}`);
