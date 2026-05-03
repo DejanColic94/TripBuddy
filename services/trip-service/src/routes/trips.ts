@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import type { DatabaseError } from "pg";
 import pool from "../db";
+import authMiddleware from "../middleware/auth";
 
 type TripRow = {
   id: number;
@@ -16,14 +17,11 @@ type CreateTripBody = {
   description?: string;
   startDate?: string;
   endDate?: string;
-  createdBy?: number;
-};
-
-type GetTripsQuery = {
-  userId?: string;
 };
 
 const router = Router();
+
+router.use(authMiddleware);
 
 function mapTrip(trip: TripRow) {
   return {
@@ -36,17 +34,9 @@ function mapTrip(trip: TripRow) {
   };
 }
 
-router.get("/", async (req: Request<{}, {}, {}, GetTripsQuery>, res: Response) => {
-  const { userId } = req.query;
-
-  if (typeof userId !== "string" || userId.trim().length === 0) {
-    return res.status(400).json({ error: "userId is required" });
-  }
-
-  const parsedUserId = Number(userId);
-
-  if (Number.isNaN(parsedUserId)) {
-    return res.status(400).json({ error: "userId must be a number" });
+router.get("/", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
@@ -57,7 +47,7 @@ router.get("/", async (req: Request<{}, {}, {}, GetTripsQuery>, res: Response) =
         WHERE created_by = $1
         ORDER BY created_at DESC
       `,
-      [parsedUserId]
+      [req.user.id]
     );
 
     return res.status(200).json(result.rows.map(mapTrip));
@@ -68,14 +58,14 @@ router.get("/", async (req: Request<{}, {}, {}, GetTripsQuery>, res: Response) =
 });
 
 router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => {
-  const { name, description, startDate, endDate, createdBy } = req.body;
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const { name, description, startDate, endDate } = req.body;
 
   if (typeof name !== "string" || name.trim().length === 0) {
     return res.status(400).json({ error: "name is required" });
-  }
-
-  if (typeof createdBy !== "number" || Number.isNaN(createdBy)) {
-    return res.status(400).json({ error: "createdBy is required" });
   }
 
   if (description !== undefined && typeof description !== "string") {
@@ -97,7 +87,7 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id, name, description, start_date, end_date, created_by
       `,
-      [name.trim(), description ?? null, startDate ?? null, endDate ?? null, createdBy]
+      [name.trim(), description ?? null, startDate ?? null, endDate ?? null, req.user.id]
     );
 
     return res.status(201).json(mapTrip(result.rows[0]));
