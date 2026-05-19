@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { API_BASE_URL } from "../config/api";
 
 type TripsPageProps = {
   token: string;
@@ -32,7 +33,7 @@ function TripsPage({ token, onUnauthorized }: TripsPageProps) {
     setIsLoading(true);
 
     try {
-      const response = await fetch("http://localhost:4000/trips", {
+      const response = await fetch(`${API_BASE_URL}/trips`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -68,7 +69,7 @@ function TripsPage({ token, onUnauthorized }: TripsPageProps) {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("http://localhost:4000/trips", {
+      const response = await fetch(`${API_BASE_URL}/trips`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,

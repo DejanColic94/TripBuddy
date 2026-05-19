@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { API_BASE_URL } from "../config/api";
 
 type LoginPageProps = {
   onLogin: (token: string) => void;
@@ -21,7 +22,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("http://localhost:4000/auth/login", {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

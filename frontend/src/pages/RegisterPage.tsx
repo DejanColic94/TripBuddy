@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { API_BASE_URL } from "../config/api";
 
 type RegisterPageProps = {
   onBackToLogin: () => void;
@@ -22,7 +23,7 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("http://localhost:4000/auth/register", {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
