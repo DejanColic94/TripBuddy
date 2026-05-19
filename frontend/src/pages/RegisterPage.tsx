@@ -38,9 +38,10 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         return;
       }
 
-      setSuccess(data.message ?? "Registration successful. You can now log in.");
       setEmail("");
       setPassword("");
+      setSuccess(data.message ?? "Registration successful. You can now log in.");
+      onBackToLogin();
     } catch {
       setError("Registration failed");
     } finally {

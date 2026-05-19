@@ -17,6 +17,24 @@ type Trip = {
 
 type CreateTripResponse = Trip | { error?: string };
 
+const formatTripDate = (value: string | null) => {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
+
 function TripsPage({ token, onUnauthorized }: TripsPageProps) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
@@ -190,8 +208,8 @@ function TripsPage({ token, onUnauthorized }: TripsPageProps) {
                     <p>{trip.description || "No description"}</p>
                   </div>
                   <div className="trip-dates">
-                    <span>Start: {trip.startDate || "-"}</span>
-                    <span>End: {trip.endDate || "-"}</span>
+                    <span>Start: {formatTripDate(trip.startDate)}</span>
+                    <span>End: {formatTripDate(trip.endDate)}</span>
                   </div>
                 </li>
               ))}
