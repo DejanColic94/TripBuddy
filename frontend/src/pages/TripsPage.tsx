@@ -193,10 +193,13 @@ function TripsPage({ token, onUnauthorized }: TripsPageProps) {
             <span>{trips.length} total</span>
           </div>
 
-          {isLoading ? <p className="empty-state">Loading trips...</p> : null}
+          {isLoading ? <p className="loading-state">Gathering your trips...</p> : null}
 
           {!isLoading && trips.length === 0 ? (
-            <p className="empty-state">No trips yet. Add your first destination to get started.</p>
+            <p className="empty-state">
+              No trips saved yet. Create your first plan and it will appear here with dates,
+              notes, and the little details worth remembering.
+            </p>
           ) : null}
 
           {!isLoading && trips.length > 0 ? (
