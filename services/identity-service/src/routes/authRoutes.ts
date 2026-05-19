@@ -37,10 +37,13 @@ router.post("/register", async (req, res) => {
       typeof error === "object" &&
       error !== null &&
       "code" in error &&
-      error.code === "23505"
+      error.code === "23505" &&
+      "constraint" in error &&
+      typeof error.constraint === "string" &&
+      error.constraint.includes("email")
     ) {
-      return res.status(400).json({
-        message: "User already exists",
+      return res.status(409).json({
+        message: "Email already exists",
       });
     }
 
