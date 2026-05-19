@@ -109,74 +109,95 @@ function TripsPage({ token, onUnauthorized }: TripsPageProps) {
   };
 
   return (
-    <section className="page">
+    <section className="page trips-page">
       <div className="page-header">
-        <h1>Trips</h1>
-        <button type="button" onClick={onUnauthorized}>
+        <div>
+          <p className="eyebrow">TripBuddy</p>
+          <h1>Your trips</h1>
+          <p className="page-subtitle">Shape the details now, enjoy the journey later.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onUnauthorized}>
           Logout
         </button>
       </div>
 
-      <form onSubmit={handleSubmit}>
-        <label>
-          Name
-          <input value={name} onChange={(event) => setName(event.target.value)} required />
-        </label>
+      <div className="trips-layout">
+        <section className="panel create-trip-card">
+          <h2>Create a trip</h2>
 
-        <label>
-          Description
-          <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows={3}
-          />
-        </label>
+          <form className="form-stack" onSubmit={handleSubmit}>
+            <label>
+              Name
+              <input value={name} onChange={(event) => setName(event.target.value)} required />
+            </label>
 
-        <label>
-          Start date
-          <input
-            type="date"
-            value={startDate}
-            onChange={(event) => setStartDate(event.target.value)}
-          />
-        </label>
+            <label>
+              Description
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={3}
+              />
+            </label>
 
-        <label>
-          End date
-          <input
-            type="date"
-            value={endDate}
-            onChange={(event) => setEndDate(event.target.value)}
-          />
-        </label>
+            <div className="date-inputs">
+              <label>
+                Start date
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+              </label>
 
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Creating..." : "Create trip"}
-        </button>
-      </form>
+              <label>
+                End date
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                />
+              </label>
+            </div>
 
-      {error ? <p className="error">{error}</p> : null}
-      {successMessage ? <p className="success">{successMessage}</p> : null}
+            <button className="primary-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Creating..." : "Create trip"}
+            </button>
+          </form>
 
-      <div>
-        <h2>Your trips</h2>
+          {error ? <p className="error">{error}</p> : null}
+          {successMessage ? <p className="success">{successMessage}</p> : null}
+        </section>
 
-        {isLoading ? <p>Loading trips...</p> : null}
+        <section className="trip-list-section">
+          <div className="section-heading">
+            <h2>Saved trips</h2>
+            <span>{trips.length} total</span>
+          </div>
 
-        {!isLoading && trips.length === 0 ? <p>No trips yet.</p> : null}
+          {isLoading ? <p className="empty-state">Loading trips...</p> : null}
 
-        {!isLoading && trips.length > 0 ? (
-          <ul>
-            {trips.map((trip) => (
-              <li key={trip.id}>
-                <strong>{trip.name}</strong>
-                <div>{trip.description || "No description"}</div>
-                <div>Start: {trip.startDate || "-"}</div>
-                <div>End: {trip.endDate || "-"}</div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+          {!isLoading && trips.length === 0 ? (
+            <p className="empty-state">No trips yet. Add your first destination to get started.</p>
+          ) : null}
+
+          {!isLoading && trips.length > 0 ? (
+            <ul className="trip-list">
+              {trips.map((trip) => (
+                <li className="trip-card" key={trip.id}>
+                  <div>
+                    <strong>{trip.name}</strong>
+                    <p>{trip.description || "No description"}</p>
+                  </div>
+                  <div className="trip-dates">
+                    <span>Start: {trip.startDate || "-"}</span>
+                    <span>End: {trip.endDate || "-"}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
       </div>
     </section>
   );
