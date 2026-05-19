@@ -38,9 +38,10 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         return;
       }
 
-      setSuccess(data.message ?? "Registration successful. You can now log in.");
       setEmail("");
       setPassword("");
+      setSuccess(data.message ?? "Registration successful. You can now log in.");
+      onBackToLogin();
     } catch {
       setError("Registration failed");
     } finally {
@@ -49,10 +50,13 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   };
 
   return (
-    <section className="page">
-      <h1>Register</h1>
+    <section className="page auth-card">
+      <div>
+        <p className="eyebrow">Start planning</p>
+        <h2>Register</h2>
+      </div>
 
-      <form onSubmit={handleSubmit}>
+      <form className="form-stack" onSubmit={handleSubmit}>
         <label>
           Email
           <input
@@ -73,7 +77,7 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
           />
         </label>
 
-        <button type="submit" disabled={isSubmitting}>
+        <button className="primary-button" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Registering..." : "Register"}
         </button>
       </form>
@@ -81,7 +85,7 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       {error ? <p className="error">{error}</p> : null}
       {success ? <p className="success">{success}</p> : null}
 
-      <button type="button" onClick={onBackToLogin}>
+      <button className="link-button" type="button" onClick={onBackToLogin}>
         Back to login
       </button>
     </section>

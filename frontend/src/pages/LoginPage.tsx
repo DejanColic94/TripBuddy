@@ -46,10 +46,13 @@ function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <section className="page">
-      <h1>Login</h1>
+    <section className="page auth-card">
+      <div>
+        <p className="eyebrow">Welcome back</p>
+        <h2>Login</h2>
+      </div>
 
-      <form onSubmit={handleSubmit}>
+      <form className="form-stack" onSubmit={handleSubmit}>
         <label>
           Email
           <input
@@ -70,7 +73,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
           />
         </label>
 
-        <button type="submit" disabled={isSubmitting}>
+        <button className="primary-button" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Logging in..." : "Login"}
         </button>
       </form>
