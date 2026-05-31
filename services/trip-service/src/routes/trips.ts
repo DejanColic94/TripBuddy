@@ -34,6 +34,23 @@ type CreateItineraryItemBody = {
   scheduledDate?: string;
 };
 
+type ExpenseRow = {
+  id: number;
+  trip_id: number;
+  title: string;
+  amount: string;
+  currency: string;
+  category: string | null;
+  created_at: string;
+};
+
+type CreateExpenseBody = {
+  title?: string;
+  amount?: number;
+  currency?: string;
+  category?: string;
+};
+
 const router = Router();
 
 router.use(authMiddleware);
@@ -60,6 +77,18 @@ function mapItineraryItem(item: ItineraryItemRow) {
   };
 }
 
+function mapExpense(expense: ExpenseRow) {
+  return {
+    id: expense.id,
+    tripId: expense.trip_id,
+    title: expense.title,
+    amount: Number(expense.amount),
+    currency: expense.currency,
+    category: expense.category,
+    createdAt: expense.created_at,
+  };
+}
+
 router.get("/", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -82,6 +111,107 @@ router.get("/", async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to get trips" });
   }
 });
+
+router.get("/:tripId/expenses", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.tripId);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "tripId must be a number" });
+  }
+
+  try {
+    const tripResult = await pool.query<{ id: number }>(
+      "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
+      [tripId, req.user.id]
+    );
+
+    if (tripResult.rowCount === 0) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const result = await pool.query<ExpenseRow>(
+      `
+        SELECT id, trip_id, title, amount, currency, category, created_at
+        FROM expenses
+        WHERE trip_id = $1
+        ORDER BY created_at DESC
+      `,
+      [tripId]
+    );
+
+    return res.status(200).json(result.rows.map(mapExpense));
+  } catch (error) {
+    console.error("[TRIPS] Failed to get expenses:", error);
+    return res.status(500).json({ error: "Failed to get expenses" });
+  }
+});
+
+router.post(
+  "/:tripId/expenses",
+  async (req: Request<{ tripId: string }, {}, CreateExpenseBody>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.tripId);
+    const { title, amount, currency, category } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "tripId must be a number" });
+    }
+
+    if (typeof title !== "string" || title.trim().length === 0) {
+      return res.status(400).json({ error: "title is required" });
+    }
+
+    if (typeof amount !== "number" || !Number.isFinite(amount)) {
+      return res.status(400).json({ error: "amount is required" });
+    }
+
+    if (currency !== undefined && typeof currency !== "string") {
+      return res.status(400).json({ error: "currency must be a string" });
+    }
+
+    if (category !== undefined && typeof category !== "string") {
+      return res.status(400).json({ error: "category must be a string" });
+    }
+
+    try {
+      const tripResult = await pool.query<{ id: number }>(
+        "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
+        [tripId, req.user.id]
+      );
+
+      if (tripResult.rowCount === 0) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+
+      const result = await pool.query<ExpenseRow>(
+        `
+          INSERT INTO expenses (trip_id, title, amount, currency, category)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, trip_id, title, amount, currency, category, created_at
+        `,
+        [
+          tripId,
+          title.trim(),
+          amount,
+          currency?.trim() || "EUR",
+          category?.trim() || null,
+        ]
+      );
+
+      return res.status(201).json(mapExpense(result.rows[0]));
+    } catch (error) {
+      console.error("[TRIPS] Failed to create expense:", error);
+      return res.status(500).json({ error: "Failed to create expense" });
+    }
+  }
+);
 
 router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   if (!req.user) {
