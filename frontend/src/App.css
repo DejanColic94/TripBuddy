@@ -344,6 +344,41 @@ button:disabled {
   gap: 24px;
 }
 
+.summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.summary-card {
+  border: 1px solid rgba(222, 214, 200, 0.95);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(31, 41, 51, 0.065);
+  padding: 20px;
+}
+
+.summary-card p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.summary-card strong {
+  display: block;
+  margin-top: 10px;
+  color: #17483c;
+  font-size: clamp(1.45rem, 3vw, 2.15rem);
+  line-height: 1;
+}
+
 .itinerary-layout {
   display: grid;
   grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
@@ -590,6 +625,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .details-hero {
     flex-direction: column;
   }
@@ -650,5 +689,9 @@ button:disabled {
   .expense-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -32,6 +32,13 @@ type Expense = {
 
 type CreateExpenseResponse = Expense | { error?: string };
 
+type TripSummary = {
+  itineraryCount: number;
+  expenseCount: number;
+  totalExpenses: number;
+  tripDurationDays: number;
+};
+
 const formatExpenseAmount = (amount: number, currency: string) => {
   try {
     return new Intl.NumberFormat("en", {
@@ -44,6 +51,7 @@ const formatExpenseAmount = (amount: number, currency: string) => {
 };
 
 function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPageProps) {
+  const [summary, setSummary] = useState<TripSummary | null>(null);
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -53,10 +61,12 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCurrency, setExpenseCurrency] = useState("EUR");
   const [expenseCategory, setExpenseCategory] = useState("");
+  const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpensesLoading, setIsExpensesLoading] = useState(true);
   const [isExpenseSubmitting, setIsExpenseSubmitting] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
   const [error, setError] = useState("");
   const [expenseError, setExpenseError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -64,6 +74,37 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
 
   const totalExpenseAmount = expenses.reduce((total, expense) => total + expense.amount, 0);
   const totalExpenseCurrency = expenses[0]?.currency ?? expenseCurrency;
+
+  const loadSummary = useCallback(async () => {
+    setSummaryError("");
+    setIsSummaryLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}/summary`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as TripSummary | { error?: string };
+
+      if (!response.ok || !("itineraryCount" in data)) {
+        setSummaryError(("error" in data && data.error) || "Failed to load trip summary");
+        return;
+      }
+
+      setSummary(data);
+    } catch {
+      setSummaryError("Failed to load trip summary");
+    } finally {
+      setIsSummaryLoading(false);
+    }
+  }, [onUnauthorized, token, trip.id]);
 
   const loadItineraryItems = useCallback(async () => {
     setError("");
@@ -128,9 +169,10 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   }, [onUnauthorized, token, trip.id]);
 
   useEffect(() => {
+    void loadSummary();
     void loadItineraryItems();
     void loadExpenses();
-  }, [loadExpenses, loadItineraryItems]);
+  }, [loadExpenses, loadItineraryItems, loadSummary]);
 
   const handleItinerarySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -165,6 +207,14 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
       }
 
       setItineraryItems((currentItems) => [...currentItems, data]);
+      setSummary((currentSummary) =>
+        currentSummary
+          ? {
+              ...currentSummary,
+              itineraryCount: currentSummary.itineraryCount + 1,
+            }
+          : currentSummary
+      );
       setTitle("");
       setDescription("");
       setScheduledDate("");
@@ -210,6 +260,15 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
       }
 
       setExpenses((currentExpenses) => [data, ...currentExpenses]);
+      setSummary((currentSummary) =>
+        currentSummary
+          ? {
+              ...currentSummary,
+              expenseCount: currentSummary.expenseCount + 1,
+              totalExpenses: currentSummary.totalExpenses + data.amount,
+            }
+          : currentSummary
+      );
       setExpenseTitle("");
       setExpenseAmount("");
       setExpenseCurrency(data.currency);
@@ -260,6 +319,36 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
           </dl>
         </section>
       </div>
+
+      <section className="summary-section">
+        <div className="section-heading">
+          <h2>Trip summary</h2>
+        </div>
+
+        {summaryError ? <p className="error">{summaryError}</p> : null}
+        {isSummaryLoading ? <p className="loading-state">Gathering trip summary...</p> : null}
+
+        {!isSummaryLoading && summary ? (
+          <div className="summary-grid">
+            <article className="summary-card">
+              <p>Duration</p>
+              <strong>{summary.tripDurationDays} days</strong>
+            </article>
+            <article className="summary-card">
+              <p>Itinerary Items</p>
+              <strong>{summary.itineraryCount}</strong>
+            </article>
+            <article className="summary-card">
+              <p>Total Expenses</p>
+              <strong>{formatExpenseAmount(summary.totalExpenses, totalExpenseCurrency)}</strong>
+            </article>
+            <article className="summary-card">
+              <p>Expense Count</p>
+              <strong>{summary.expenseCount}</strong>
+            </article>
+          </div>
+        ) : null}
+      </section>
 
       <div className="itinerary-layout">
         <section className="panel itinerary-form-card">
