@@ -48,6 +48,12 @@ This starts:
 - identity-db: localhost:5435
 - trip-db: localhost:5436
 
+The backend services wait for PostgreSQL healthchecks before starting. The frontend container also prints the app URL in the Compose logs:
+
+```text
+TripBuddy frontend available at: http://localhost:5173/
+```
+
 ### Stop full local stack
 
 ```bash
