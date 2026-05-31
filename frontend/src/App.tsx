@@ -2,11 +2,14 @@ import { useState } from "react";
 import "./App.css";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
+import type { Trip } from "./types/trip";
 
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [authPage, setAuthPage] = useState<"login" | "register">("login");
+  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
 
   const handleLogin = (nextToken: string) => {
     localStorage.setItem("token", nextToken);
@@ -15,13 +18,27 @@ function App() {
 
   const handleLogout = () => {
     localStorage.removeItem("token");
+    setSelectedTrip(null);
     setToken(null);
   };
 
   return (
     <main className="app">
       {token ? (
-        <TripsPage token={token} onUnauthorized={handleLogout} />
+        selectedTrip ? (
+          <TripDetailsPage
+            token={token}
+            trip={selectedTrip}
+            onBack={() => setSelectedTrip(null)}
+            onUnauthorized={handleLogout}
+          />
+        ) : (
+          <TripsPage
+            token={token}
+            onUnauthorized={handleLogout}
+            onSelectTrip={setSelectedTrip}
+          />
+        )
       ) : authPage === "register" ? (
         <div className="auth-layout">
           <div className="brand-panel">
