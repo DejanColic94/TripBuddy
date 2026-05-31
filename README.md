@@ -33,10 +33,41 @@ Basic request flow:
 
 ## Startup commands
 
+### Start full local stack with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- frontend: http://localhost:5173
+- gateway: http://localhost:4000
+- identity-service: http://localhost:4001
+- trip-service: http://localhost:4002
+- identity-db: localhost:5435
+- trip-db: localhost:5436
+
+### Stop full local stack
+
+```bash
+docker compose down
+```
+
+### Manual local workflow
+
+You can still run services manually if you prefer.
+
 ### Start identity PostgreSQL with Docker
 
 ```bash
 docker run -d --name identity-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=identity_db -p 5435:5432 postgres:15
+```
+
+### Start trip PostgreSQL with Docker
+
+```bash
+docker run -d --name trip-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=trip_db -p 5436:5432 postgres:15
 ```
 
 ### Start existing identity PostgreSQL container
@@ -67,6 +98,14 @@ docker rm -f identity-postgres
 
 ```bash
 cd services/identity-service
+npm install
+npm run dev
+```
+
+### Start trip-service
+
+```bash
+cd services/trip-service
 npm install
 npm run dev
 ```

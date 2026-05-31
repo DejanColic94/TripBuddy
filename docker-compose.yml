@@ -4,7 +4,9 @@ services:
       context: ./frontend
     container_name: tripbuddy-frontend
     ports:
-      - "${FRONTEND_PORT}:5173"
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -16,31 +18,35 @@ services:
       context: ./services/gateway
     container_name: tripbuddy-gateway
     ports:
-      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+      - "4000:4000"
+    environment:
+      GATEWAY_PORT: 4000
+      IDENTITY_SERVICE_URL: http://identity-service:4001
+      TRIP_SERVICE_URL: http://trip-service:4002
     volumes:
       - ./services/gateway:/app
       - /app/node_modules
-    env_file:
-      - .env
     depends_on:
       - identity-service
       - trip-service
-      - integration-service
 
   identity-service:
     build:
       context: ./services/identity-service
     container_name: tripbuddy-identity-service
     ports:
-      - "${IDENTITY_SERVICE_PORT}:${IDENTITY_SERVICE_PORT}"
+      - "4001:4001"
+    environment:
+      IDENTITY_SERVICE_PORT: 4001
+      IDENTITY_DB_HOST: identity-db
+      IDENTITY_DB_PORT: 5432
+      IDENTITY_DB_NAME: identity_db
+      IDENTITY_DB_USER: postgres
+      IDENTITY_DB_PASSWORD: postgres
+      IDENTITY_JWT_SECRET: tripbuddy_identity_secret
     volumes:
       - ./services/identity-service:/app
       - /app/node_modules
-    env_file:
-      - .env
-    environment:
-      IDENTITY_DB_HOST: identity-db
-      IDENTITY_DB_PORT: 5432
     depends_on:
       - identity-db
 
@@ -49,40 +55,31 @@ services:
       context: ./services/trip-service
     container_name: tripbuddy-trip-service
     ports:
-      - "${TRIP_SERVICE_PORT}:${TRIP_SERVICE_PORT}"
+      - "4002:4002"
+    environment:
+      TRIP_SERVICE_PORT: 4002
+      TRIP_DB_HOST: trip-db
+      TRIP_DB_PORT: 5432
+      TRIP_DB_NAME: trip_db
+      TRIP_DB_USER: postgres
+      TRIP_DB_PASSWORD: postgres
+      TRIP_JWT_SECRET: tripbuddy_identity_secret
     volumes:
       - ./services/trip-service:/app
       - /app/node_modules
-    env_file:
-      - .env
-    environment:
-      TRIP_DB_HOST: trip-db
-      TRIP_DB_PORT: 5432
     depends_on:
       - trip-db
-
-  integration-service:
-    build:
-      context: ./services/integration-service
-    container_name: tripbuddy-integration-service
-    ports:
-      - "${INTEGRATION_SERVICE_PORT}:${INTEGRATION_SERVICE_PORT}"
-    volumes:
-      - ./services/integration-service:/app
-      - /app/node_modules
-    env_file:
-      - .env
 
   identity-db:
     image: postgres:16
     container_name: tripbuddy-identity-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${IDENTITY_DB_NAME}
-      POSTGRES_USER: ${IDENTITY_DB_USER}
-      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD}
+      POSTGRES_DB: identity_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "${IDENTITY_DB_PORT}:5432"
+      - "5435:5432"
     volumes:
       - identity_db_data:/var/lib/postgresql/data
 
@@ -91,11 +88,11 @@ services:
     container_name: tripbuddy-trip-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${TRIP_DB_NAME}
-      POSTGRES_USER: ${TRIP_DB_USER}
-      POSTGRES_PASSWORD: ${TRIP_DB_PASSWORD}
+      POSTGRES_DB: trip_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "${TRIP_DB_PORT}:5432"
+      - "5436:5432"
     volumes:
       - trip_db_data:/var/lib/postgresql/data
 
