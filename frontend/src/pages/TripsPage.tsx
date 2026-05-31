@@ -1,41 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { API_BASE_URL } from "../config/api";
+import { formatTripDate, type Trip } from "../types/trip";
 
 type TripsPageProps = {
   token: string;
   onUnauthorized: () => void;
-};
-
-type Trip = {
-  id: number;
-  name: string;
-  description: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  createdBy: number;
+  onSelectTrip: (trip: Trip) => void;
 };
 
 type CreateTripResponse = Trip | { error?: string };
 
-const formatTripDate = (value: string | null) => {
-  if (!value) {
-    return "-";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-};
-
-function TripsPage({ token, onUnauthorized }: TripsPageProps) {
+function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -205,7 +180,19 @@ function TripsPage({ token, onUnauthorized }: TripsPageProps) {
           {!isLoading && trips.length > 0 ? (
             <ul className="trip-list">
               {trips.map((trip) => (
-                <li className="trip-card" key={trip.id}>
+                <li
+                  className="trip-card clickable-trip-card"
+                  key={trip.id}
+                  onClick={() => onSelectTrip(trip)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectTrip(trip);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                   <div>
                     <strong>{trip.name}</strong>
                     <p>{trip.description || "No description"}</p>
