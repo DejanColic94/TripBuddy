@@ -351,13 +351,21 @@ button:disabled {
   gap: 24px;
 }
 
+.expenses-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 24px;
+}
+
 .trip-info-card {
   min-height: 220px;
 }
 
 .trip-info-card h2,
 .metadata-card h2,
-.itinerary-form-card h2 {
+.itinerary-form-card h2,
+.expense-form-card h2 {
   margin: 0;
   color: #1f2933;
   font-size: 1.45rem;
@@ -397,15 +405,57 @@ button:disabled {
   top: 24px;
 }
 
+.expense-form-card {
+  position: sticky;
+  top: 24px;
+}
+
+.expense-inputs {
+  display: grid;
+  grid-template-columns: 1fr 0.65fr;
+  gap: 14px;
+}
+
 .itinerary-section {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
+.expenses-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.expense-total-card {
+  border: 1px solid rgba(37, 109, 90, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 231, 216, 0.86)),
+    #ffffff;
+  box-shadow: 0 16px 42px rgba(31, 41, 51, 0.07);
+  padding: 24px;
+}
+
+.expense-total-card strong {
+  display: block;
+  color: #17483c;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1;
+}
+
 .itinerary-list {
   display: grid;
   gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.expense-list {
+  display: grid;
+  gap: 14px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -455,6 +505,41 @@ button:disabled {
   line-height: 1.6;
 }
 
+.expense-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid rgba(222, 214, 200, 0.95);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(31, 41, 51, 0.065);
+  padding: 18px 20px;
+}
+
+.expense-card strong {
+  display: block;
+  color: #17483c;
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.expense-card p {
+  margin: 6px 0 0;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.expense-card span {
+  border: 1px solid rgba(217, 140, 69, 0.28);
+  border-radius: 999px;
+  background: rgba(243, 200, 146, 0.22);
+  color: #17483c;
+  font-weight: 900;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+
 .error,
 .success {
   margin: 0;
@@ -481,7 +566,8 @@ button:disabled {
 
   .auth-layout,
   .trips-layout,
-  .itinerary-layout {
+  .itinerary-layout,
+  .expenses-layout {
     grid-template-columns: 1fr;
   }
 
@@ -515,6 +601,10 @@ button:disabled {
   .itinerary-form-card {
     position: static;
   }
+
+  .expense-form-card {
+    position: static;
+  }
 }
 
 @media (max-width: 520px) {
@@ -525,6 +615,10 @@ button:disabled {
   }
 
   .date-inputs {
+    grid-template-columns: 1fr;
+  }
+
+  .expense-inputs {
     grid-template-columns: 1fr;
   }
 
@@ -551,5 +645,10 @@ button:disabled {
     justify-content: flex-start;
     min-height: auto;
     text-align: left;
+  }
+
+  .expense-card {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
