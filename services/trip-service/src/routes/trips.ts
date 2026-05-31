@@ -51,6 +51,13 @@ type CreateExpenseBody = {
   category?: string;
 };
 
+type TripSummaryRow = {
+  itinerary_count: string;
+  expense_count: string;
+  total_expenses: string | null;
+  trip_duration_days: number | null;
+};
+
 const router = Router();
 
 router.use(authMiddleware);
@@ -109,6 +116,52 @@ router.get("/", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[TRIPS] Failed to get trips:", error);
     return res.status(500).json({ error: "Failed to get trips" });
+  }
+});
+
+router.get("/:tripId/summary", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.tripId);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "tripId must be a number" });
+  }
+
+  try {
+    const result = await pool.query<TripSummaryRow>(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM itinerary_items WHERE trip_id = trips.id) AS itinerary_count,
+          (SELECT COUNT(*) FROM expenses WHERE trip_id = trips.id) AS expense_count,
+          (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE trip_id = trips.id) AS total_expenses,
+          CASE
+            WHEN start_date IS NULL OR end_date IS NULL THEN 0
+            ELSE end_date - start_date
+          END AS trip_duration_days
+        FROM trips
+        WHERE id = $1 AND created_by = $2
+      `,
+      [tripId, req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const summary = result.rows[0];
+
+    return res.status(200).json({
+      itineraryCount: Number(summary.itinerary_count),
+      expenseCount: Number(summary.expense_count),
+      totalExpenses: Number(summary.total_expenses ?? 0),
+      tripDurationDays: summary.trip_duration_days ?? 0,
+    });
+  } catch (error) {
+    console.error("[TRIPS] Failed to get trip summary:", error);
+    return res.status(500).json({ error: "Failed to get trip summary" });
   }
 });
 
