@@ -19,6 +19,21 @@ type CreateTripBody = {
   endDate?: string;
 };
 
+type ItineraryItemRow = {
+  id: number;
+  trip_id: number;
+  title: string;
+  description: string | null;
+  scheduled_date: string | null;
+  created_at: string;
+};
+
+type CreateItineraryItemBody = {
+  title?: string;
+  description?: string;
+  scheduledDate?: string;
+};
+
 const router = Router();
 
 router.use(authMiddleware);
@@ -31,6 +46,17 @@ function mapTrip(trip: TripRow) {
     startDate: trip.start_date,
     endDate: trip.end_date,
     createdBy: trip.created_by,
+  };
+}
+
+function mapItineraryItem(item: ItineraryItemRow) {
+  return {
+    id: item.id,
+    tripId: item.trip_id,
+    title: item.title,
+    description: item.description,
+    scheduledDate: item.scheduled_date,
+    createdAt: item.created_at,
   };
 }
 
@@ -56,6 +82,103 @@ router.get("/", async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to get trips" });
   }
 });
+
+router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.tripId);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "tripId must be a number" });
+  }
+
+  try {
+    const tripResult = await pool.query<{ id: number }>(
+      "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
+      [tripId, req.user.id]
+    );
+
+    if (tripResult.rowCount === 0) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const result = await pool.query<ItineraryItemRow>(
+      `
+        SELECT id, trip_id, title, description, scheduled_date, created_at
+        FROM itinerary_items
+        WHERE trip_id = $1
+        ORDER BY scheduled_date ASC NULLS LAST, created_at DESC
+      `,
+      [tripId]
+    );
+
+    return res.status(200).json(result.rows.map(mapItineraryItem));
+  } catch (error) {
+    console.error("[TRIPS] Failed to get itinerary items:", error);
+    return res.status(500).json({ error: "Failed to get itinerary items" });
+  }
+});
+
+router.post(
+  "/:tripId/itinerary",
+  async (req: Request<{ tripId: string }, {}, CreateItineraryItemBody>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.tripId);
+    const { title, description, scheduledDate } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "tripId must be a number" });
+    }
+
+    if (typeof title !== "string" || title.trim().length === 0) {
+      return res.status(400).json({ error: "title is required" });
+    }
+
+    if (description !== undefined && typeof description !== "string") {
+      return res.status(400).json({ error: "description must be a string" });
+    }
+
+    if (scheduledDate !== undefined && typeof scheduledDate !== "string") {
+      return res.status(400).json({ error: "scheduledDate must be a string" });
+    }
+
+    try {
+      const tripResult = await pool.query<{ id: number }>(
+        "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
+        [tripId, req.user.id]
+      );
+
+      if (tripResult.rowCount === 0) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+
+      const result = await pool.query<ItineraryItemRow>(
+        `
+          INSERT INTO itinerary_items (trip_id, title, description, scheduled_date)
+          VALUES ($1, $2, $3, $4)
+          RETURNING id, trip_id, title, description, scheduled_date, created_at
+        `,
+        [tripId, title.trim(), description ?? null, scheduledDate ?? null]
+      );
+
+      return res.status(201).json(mapItineraryItem(result.rows[0]));
+    } catch (error) {
+      const dbError = error as DatabaseError;
+
+      if (dbError.code === "22007") {
+        return res.status(400).json({ error: "scheduledDate must be a valid date" });
+      }
+
+      console.error("[TRIPS] Failed to create itinerary item:", error);
+      return res.status(500).json({ error: "Failed to create itinerary item" });
+    }
+  }
+);
 
 router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => {
   if (!req.user) {

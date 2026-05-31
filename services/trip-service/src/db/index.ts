@@ -35,6 +35,18 @@ export async function initDb(): Promise<void> {
       )
     `);
     console.log("[DB] Trips table ensured");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS itinerary_items (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        scheduled_date DATE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[DB] Itinerary items table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize trip database:", error);
   }

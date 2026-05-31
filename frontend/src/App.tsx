@@ -26,7 +26,12 @@ function App() {
     <main className="app">
       {token ? (
         selectedTrip ? (
-          <TripDetailsPage trip={selectedTrip} onBack={() => setSelectedTrip(null)} />
+          <TripDetailsPage
+            token={token}
+            trip={selectedTrip}
+            onBack={() => setSelectedTrip(null)}
+            onUnauthorized={handleLogout}
+          />
         ) : (
           <TripsPage
             token={token}
