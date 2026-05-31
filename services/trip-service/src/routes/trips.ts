@@ -96,6 +96,15 @@ function mapExpense(expense: ExpenseRow) {
   };
 }
 
+async function userOwnsTrip(tripId: number, userId: number): Promise<boolean> {
+  const result = await pool.query<{ id: number }>(
+    "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
+    [tripId, userId]
+  );
+
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
 router.get("/", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -127,10 +136,14 @@ router.get("/:tripId/summary", async (req: Request, res: Response) => {
   const tripId = Number(req.params.tripId);
 
   if (!Number.isInteger(tripId)) {
-    return res.status(400).json({ error: "tripId must be a number" });
+    return res.status(400).json({ error: "Invalid trip id" });
   }
 
   try {
+    if (!(await userOwnsTrip(tripId, req.user.id))) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
     const result = await pool.query<TripSummaryRow>(
       `
         SELECT
@@ -142,14 +155,10 @@ router.get("/:tripId/summary", async (req: Request, res: Response) => {
             ELSE end_date - start_date
           END AS trip_duration_days
         FROM trips
-        WHERE id = $1 AND created_by = $2
+        WHERE id = $1
       `,
-      [tripId, req.user.id]
+      [tripId]
     );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Trip not found" });
-    }
 
     const summary = result.rows[0];
 
@@ -173,16 +182,11 @@ router.get("/:tripId/expenses", async (req: Request, res: Response) => {
   const tripId = Number(req.params.tripId);
 
   if (!Number.isInteger(tripId)) {
-    return res.status(400).json({ error: "tripId must be a number" });
+    return res.status(400).json({ error: "Invalid trip id" });
   }
 
   try {
-    const tripResult = await pool.query<{ id: number }>(
-      "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
-      [tripId, req.user.id]
-    );
-
-    if (tripResult.rowCount === 0) {
+    if (!(await userOwnsTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -214,7 +218,7 @@ router.post(
     const { title, amount, currency, category } = req.body;
 
     if (!Number.isInteger(tripId)) {
-      return res.status(400).json({ error: "tripId must be a number" });
+      return res.status(400).json({ error: "Invalid trip id" });
     }
 
     if (typeof title !== "string" || title.trim().length === 0) {
@@ -234,12 +238,7 @@ router.post(
     }
 
     try {
-      const tripResult = await pool.query<{ id: number }>(
-        "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
-        [tripId, req.user.id]
-      );
-
-      if (tripResult.rowCount === 0) {
+      if (!(await userOwnsTrip(tripId, req.user.id))) {
         return res.status(404).json({ error: "Trip not found" });
       }
 
@@ -274,16 +273,11 @@ router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   const tripId = Number(req.params.tripId);
 
   if (!Number.isInteger(tripId)) {
-    return res.status(400).json({ error: "tripId must be a number" });
+    return res.status(400).json({ error: "Invalid trip id" });
   }
 
   try {
-    const tripResult = await pool.query<{ id: number }>(
-      "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
-      [tripId, req.user.id]
-    );
-
-    if (tripResult.rowCount === 0) {
+    if (!(await userOwnsTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -315,7 +309,7 @@ router.post(
     const { title, description, scheduledDate } = req.body;
 
     if (!Number.isInteger(tripId)) {
-      return res.status(400).json({ error: "tripId must be a number" });
+      return res.status(400).json({ error: "Invalid trip id" });
     }
 
     if (typeof title !== "string" || title.trim().length === 0) {
@@ -331,12 +325,7 @@ router.post(
     }
 
     try {
-      const tripResult = await pool.query<{ id: number }>(
-        "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
-        [tripId, req.user.id]
-      );
-
-      if (tripResult.rowCount === 0) {
+      if (!(await userOwnsTrip(tripId, req.user.id))) {
         return res.status(404).json({ error: "Trip not found" });
       }
 
