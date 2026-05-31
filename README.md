@@ -131,3 +131,19 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Backend tests
+
+Run backend endpoint tests from each service directory:
+
+```bash
+cd services/identity-service
+npm test
+```
+
+```bash
+cd services/trip-service
+npm test
+```
+
+The tests use Jest + Supertest and expect the local PostgreSQL databases to be available. See `.env.test.example` in each service for the default test database settings.
