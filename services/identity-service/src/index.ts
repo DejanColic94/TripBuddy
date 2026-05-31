@@ -3,8 +3,10 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import swaggerUi from "swagger-ui-express";
 import authRoutes from "./routes/authRoutes";
 import { initDb, testConnection } from "./db";
+import swaggerSpec from "./swagger";
 
 const app = express();
 const PORT = process.env.IDENTITY_SERVICE_PORT || 4001;
@@ -13,6 +15,8 @@ app.use(cors());
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json());
+
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use((req, _res, next) => {
   console.log(`[IDENTITY] ${req.method} ${req.url}`);
