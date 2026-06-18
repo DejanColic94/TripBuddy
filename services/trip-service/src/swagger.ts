@@ -38,6 +38,22 @@ const swaggerSpec = swaggerJsdoc({
             startDate: { type: "string", nullable: true, example: "2026-06-01" },
             endDate: { type: "string", nullable: true, example: "2026-06-07" },
             createdBy: { type: "number", example: 1 },
+            createdAt: { type: "string", example: "2026-05-31T10:00:00.000Z" },
+            start_date: { type: "string", nullable: true, example: "2026-06-01" },
+            end_date: { type: "string", nullable: true, example: "2026-06-07" },
+            created_by: { type: "number", example: 1 },
+            created_at: { type: "string", example: "2026-05-31T10:00:00.000Z" },
+            participants: {
+              type: "array",
+              items: { $ref: "#/components/schemas/TripParticipantSummary" },
+            },
+          },
+        },
+        TripParticipantSummary: {
+          type: "object",
+          properties: {
+            userId: { type: "number", example: 2 },
+            role: { type: "string", example: "viewer" },
           },
         },
         CreateTripRequest: {
@@ -131,7 +147,9 @@ const swaggerSpec = swaggerJsdoc({
     paths: {
       "/trips": {
         get: {
-          summary: "Get trips for the authenticated user",
+          summary: "Get owned and shared trips for the authenticated user",
+          description:
+            "Returns trips created by the authenticated user and trips where the user is a participant. Duplicate trips are removed and each trip includes its participants.",
           tags: ["Trips"],
           responses: {
             "200": {
@@ -150,6 +168,7 @@ const swaggerSpec = swaggerJsdoc({
         },
         post: {
           summary: "Create a trip",
+          description: "Creates a trip and automatically adds the creator as an owner participant.",
           tags: ["Trips"],
           requestBody: {
             required: true,
@@ -173,9 +192,31 @@ const swaggerSpec = swaggerJsdoc({
           },
         },
       },
+      "/trips/{tripId}": {
+        get: {
+          summary: "Get trip details",
+          description: "Allowed for the trip creator or any participant on the trip.",
+          tags: ["Trips"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          responses: {
+            "200": {
+              description: "Trip details",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Trip" },
+                },
+              },
+            },
+            "400": { description: "Invalid trip id" },
+            ...authResponses,
+            ...notFoundResponse,
+          },
+        },
+      },
       "/trips/{tripId}/participants": {
         get: {
           summary: "Get trip participants",
+          description: "Allowed for the trip creator or any participant on the trip.",
           tags: ["Participants"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           responses: {
@@ -197,6 +238,7 @@ const swaggerSpec = swaggerJsdoc({
         },
         post: {
           summary: "Add a trip participant",
+          description: "Only the trip creator can add participants.",
           tags: ["Participants"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           requestBody: {
@@ -226,6 +268,7 @@ const swaggerSpec = swaggerJsdoc({
       "/trips/{tripId}/summary": {
         get: {
           summary: "Get trip summary",
+          description: "Allowed for the trip creator or any participant on the trip.",
           tags: ["Trips"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           responses: {
@@ -246,6 +289,7 @@ const swaggerSpec = swaggerJsdoc({
       "/trips/{tripId}/itinerary": {
         get: {
           summary: "Get itinerary items for a trip",
+          description: "Allowed for the trip creator or any participant on the trip.",
           tags: ["Itinerary"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           responses: {
@@ -267,6 +311,7 @@ const swaggerSpec = swaggerJsdoc({
         },
         post: {
           summary: "Create an itinerary item",
+          description: "Only the trip creator can create itinerary items.",
           tags: ["Itinerary"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           requestBody: {
@@ -295,6 +340,7 @@ const swaggerSpec = swaggerJsdoc({
       "/trips/{tripId}/expenses": {
         get: {
           summary: "Get expenses for a trip",
+          description: "Allowed for the trip creator or any participant on the trip.",
           tags: ["Expenses"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           responses: {
@@ -316,6 +362,7 @@ const swaggerSpec = swaggerJsdoc({
         },
         post: {
           summary: "Create an expense",
+          description: "Only the trip creator can create expenses.",
           tags: ["Expenses"],
           parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
           requestBody: {

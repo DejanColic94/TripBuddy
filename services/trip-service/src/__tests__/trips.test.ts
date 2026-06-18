@@ -132,6 +132,74 @@ describe("trip-service endpoints", () => {
     );
   });
 
+  it("allows a participant to see a shared trip in GET /trips", async () => {
+    const response = await request(app)
+      .get("/trips")
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: tripId,
+          name: "Test Trip",
+          start_date: expect.any(String),
+          end_date: expect.any(String),
+          created_by: userId,
+          participants: expect.arrayContaining([
+            expect.objectContaining({ userId, role: "owner" }),
+            expect.objectContaining({ userId: participantUserId, role: "viewer" }),
+          ]),
+        }),
+      ])
+    );
+  });
+
+  it("includes participants in GET /trips responses", async () => {
+    const response = await request(app)
+      .get("/trips")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: tripId,
+          participants: expect.arrayContaining([
+            expect.objectContaining({ userId, role: "owner" }),
+            expect.objectContaining({ userId: participantUserId, role: "viewer" }),
+          ]),
+        }),
+      ])
+    );
+  });
+
+  it("does not duplicate owner trips in GET /trips", async () => {
+    const response = await request(app)
+      .get("/trips")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.filter((trip: { id: number }) => trip.id === tripId)).toHaveLength(1);
+  });
+
+  it("allows a participant to open shared trip details", async () => {
+    const response = await request(app)
+      .get(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        id: tripId,
+        name: "Test Trip",
+        participants: expect.arrayContaining([
+          expect.objectContaining({ userId: participantUserId, role: "viewer" }),
+        ]),
+      })
+    );
+  });
+
   it("prevents duplicate participants", async () => {
     const response = await request(app)
       .post(`/trips/${tripId}/participants`)
@@ -158,6 +226,19 @@ describe("trip-service endpoints", () => {
     expect(response.body.error).toBe("Trip not found");
   });
 
+  it("does not allow a participant to update or delete a trip", async () => {
+    const updateResponse = await request(app)
+      .put(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({ name: "Updated Trip" });
+    const deleteResponse = await request(app)
+      .delete(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(updateResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(404);
+  });
+
   it("does not allow unauthenticated users to access participant endpoints", async () => {
     const getResponse = await request(app).get(`/trips/${tripId}/participants`);
     const postResponse = await request(app)
@@ -177,6 +258,19 @@ describe("trip-service endpoints", () => {
     expect(response.body).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: tripId, name: "Test Trip" })])
     );
+  });
+
+  it("does not allow a participant to create itinerary items", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/itinerary`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({
+        title: "Participant plan",
+        scheduledDate: "2026-06-02",
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("Trip not found");
   });
 
   it("creates an itinerary item", async () => {
@@ -202,6 +296,44 @@ describe("trip-service endpoints", () => {
     expect(response.body).toEqual(
       expect.arrayContaining([expect.objectContaining({ title: "Museum" })])
     );
+  });
+
+  it("allows a participant to view itinerary items", async () => {
+    const response = await request(app)
+      .get(`/trips/${tripId}/itinerary`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Museum" })])
+    );
+  });
+
+  it("does not allow a participant to update or delete itinerary items", async () => {
+    const updateResponse = await request(app)
+      .put(`/trips/${tripId}/itinerary/1`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({ title: "Updated Museum" });
+    const deleteResponse = await request(app)
+      .delete(`/trips/${tripId}/itinerary/1`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(updateResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(404);
+  });
+
+  it("does not allow a participant to create expenses", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/expenses`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({
+        title: "Participant hotel",
+        amount: 100,
+        currency: "EUR",
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("Trip not found");
   });
 
   it("creates an expense", async () => {
@@ -231,10 +363,50 @@ describe("trip-service endpoints", () => {
     );
   });
 
+  it("allows a participant to view expenses", async () => {
+    const response = await request(app)
+      .get(`/trips/${tripId}/expenses`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Hotel", amount: 250 })])
+    );
+  });
+
+  it("does not allow a participant to update or delete expenses", async () => {
+    const updateResponse = await request(app)
+      .put(`/trips/${tripId}/expenses/1`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({ title: "Updated Hotel" });
+    const deleteResponse = await request(app)
+      .delete(`/trips/${tripId}/expenses/1`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(updateResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(404);
+  });
+
   it("gets trip summary", async () => {
     const response = await request(app)
       .get(`/trips/${tripId}/summary`)
       .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        itineraryCount: 1,
+        expenseCount: 1,
+        totalExpenses: 250,
+        tripDurationDays: 4,
+      })
+    );
+  });
+
+  it("allows a participant to view trip summary", async () => {
+    const response = await request(app)
+      .get(`/trips/${tripId}/summary`)
+      .set("Authorization", `Bearer ${participantToken}`);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(

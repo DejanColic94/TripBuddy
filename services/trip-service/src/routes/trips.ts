@@ -10,6 +10,16 @@ type TripRow = {
   start_date: string | null;
   end_date: string | null;
   created_by: number;
+  created_at: string;
+};
+
+type TripParticipantSummary = {
+  userId: number;
+  role: string;
+};
+
+type TripWithParticipantsRow = TripRow & {
+  participants: TripParticipantSummary[];
 };
 
 type CreateTripBody = {
@@ -75,7 +85,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
-function mapTrip(trip: TripRow) {
+function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
   return {
     id: trip.id,
     name: trip.name,
@@ -83,6 +93,12 @@ function mapTrip(trip: TripRow) {
     startDate: trip.start_date,
     endDate: trip.end_date,
     createdBy: trip.created_by,
+    createdAt: trip.created_at,
+    start_date: trip.start_date,
+    end_date: trip.end_date,
+    created_by: trip.created_by,
+    created_at: trip.created_at,
+    participants,
   };
 }
 
@@ -128,7 +144,7 @@ async function userOwnsTrip(tripId: number, userId: number): Promise<boolean> {
   return result.rowCount !== null && result.rowCount > 0;
 }
 
-async function userCanAccessTripParticipants(tripId: number, userId: number): Promise<boolean> {
+async function userCanAccessTrip(tripId: number, userId: number): Promise<boolean> {
   const result = await pool.query<{ id: number }>(
     `
       SELECT trips.id
@@ -151,20 +167,95 @@ router.get("/", async (req: Request, res: Response) => {
   }
 
   try {
-    const result = await pool.query<TripRow>(
+    const result = await pool.query<TripWithParticipantsRow>(
       `
-        SELECT id, name, description, start_date, end_date, created_by
-        FROM trips
-        WHERE created_by = $1
-        ORDER BY created_at DESC
+        WITH visible_trips AS (
+          SELECT DISTINCT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+            trips.created_by, trips.created_at
+          FROM trips
+          LEFT JOIN trip_participants current_user_participants
+            ON current_user_participants.trip_id = trips.id
+            AND current_user_participants.user_id = $1
+          WHERE trips.created_by = $1
+            OR current_user_participants.id IS NOT NULL
+        )
+        SELECT visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
+          visible_trips.created_at,
+          COALESCE(
+            json_agg(
+              json_build_object('userId', trip_participants.user_id, 'role', trip_participants.role)
+              ORDER BY trip_participants.created_at ASC
+            ) FILTER (WHERE trip_participants.id IS NOT NULL),
+            '[]'
+          ) AS participants
+        FROM visible_trips
+        LEFT JOIN trip_participants
+          ON trip_participants.trip_id = visible_trips.id
+        GROUP BY visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
+          visible_trips.created_at
+        ORDER BY visible_trips.created_at DESC
       `,
       [req.user.id]
     );
 
-    return res.status(200).json(result.rows.map(mapTrip));
+    return res.status(200).json(
+      result.rows.map((trip) => mapTrip(trip, trip.participants))
+    );
   } catch (error) {
     console.error("[TRIPS] Failed to get trips:", error);
     return res.status(500).json({ error: "Failed to get trips" });
+  }
+});
+
+router.get("/:id", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  try {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const result = await pool.query<TripWithParticipantsRow>(
+      `
+        SELECT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+          trips.created_by, trips.created_at,
+          COALESCE(
+            json_agg(
+              json_build_object('userId', trip_participants.user_id, 'role', trip_participants.role)
+              ORDER BY trip_participants.created_at ASC
+            ) FILTER (WHERE trip_participants.id IS NOT NULL),
+            '[]'
+          ) AS participants
+        FROM trips
+        LEFT JOIN trip_participants
+          ON trip_participants.trip_id = trips.id
+        WHERE trips.id = $1
+        GROUP BY trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+          trips.created_by, trips.created_at
+      `,
+      [tripId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const trip = result.rows[0];
+
+    return res.status(200).json(mapTrip(trip, trip.participants));
+  } catch (error) {
+    console.error("[TRIPS] Failed to get trip:", error);
+    return res.status(500).json({ error: "Failed to get trip" });
   }
 });
 
@@ -180,7 +271,7 @@ router.get("/:id/participants", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userCanAccessTripParticipants(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -263,7 +354,7 @@ router.get("/:tripId/summary", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -309,7 +400,7 @@ router.get("/:tripId/expenses", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -400,7 +491,7 @@ router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -503,7 +594,7 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
       `
         INSERT INTO trips (name, description, start_date, end_date, created_by)
         VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, description, start_date, end_date, created_by
+        RETURNING id, name, description, start_date, end_date, created_by, created_at
       `,
       [name.trim(), description ?? null, startDate ?? null, endDate ?? null, req.user.id]
     );
