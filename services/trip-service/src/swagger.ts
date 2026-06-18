@@ -59,6 +59,24 @@ const swaggerSpec = swaggerJsdoc({
             tripDurationDays: { type: "number", example: 6 },
           },
         },
+        TripParticipant: {
+          type: "object",
+          properties: {
+            id: { type: "number", example: 1 },
+            tripId: { type: "number", example: 1 },
+            userId: { type: "number", example: 2 },
+            role: { type: "string", example: "viewer" },
+            createdAt: { type: "string", example: "2026-06-18T10:00:00.000Z" },
+          },
+        },
+        AddTripParticipantRequest: {
+          type: "object",
+          required: ["userId"],
+          properties: {
+            userId: { type: "number", example: 2 },
+            role: { type: "string", enum: ["viewer"], example: "viewer" },
+          },
+        },
         ItineraryItem: {
           type: "object",
           properties: {
@@ -152,6 +170,56 @@ const swaggerSpec = swaggerJsdoc({
             },
             "400": { description: "Invalid request body" },
             ...authResponses,
+          },
+        },
+      },
+      "/trips/{tripId}/participants": {
+        get: {
+          summary: "Get trip participants",
+          tags: ["Participants"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          responses: {
+            "200": {
+              description: "Trip participants",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/TripParticipant" },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid trip id" },
+            ...authResponses,
+            ...notFoundResponse,
+          },
+        },
+        post: {
+          summary: "Add a trip participant",
+          tags: ["Participants"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/AddTripParticipantRequest" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Created trip participant",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TripParticipant" },
+                },
+              },
+            },
+            "400": { description: "Invalid request" },
+            "409": { description: "Participant already exists" },
+            ...authResponses,
+            ...notFoundResponse,
           },
         },
       },

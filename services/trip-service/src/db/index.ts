@@ -37,6 +37,33 @@ export async function initDb(): Promise<void> {
     console.log("[DB] Trips table ensured");
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS trip_participants (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname IN (
+            'trip_participants_trip_id_user_id_unique',
+            'trip_participants_trip_id_user_id_key'
+          )
+        ) THEN
+          ALTER TABLE trip_participants
+          ADD CONSTRAINT trip_participants_trip_id_user_id_unique UNIQUE (trip_id, user_id);
+        END IF;
+      END $$;
+    `);
+    console.log("[DB] Trip participants table ensured");
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS itinerary_items (
         id SERIAL PRIMARY KEY,
         trip_id INTEGER NOT NULL,
