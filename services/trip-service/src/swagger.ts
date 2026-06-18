@@ -93,6 +93,30 @@ const swaggerSpec = swaggerJsdoc({
             role: { type: "string", enum: ["viewer"], example: "viewer" },
           },
         },
+        TripInvite: {
+          type: "object",
+          properties: {
+            id: { type: "number", example: 1 },
+            tripId: { type: "number", example: 1 },
+            email: { type: "string", example: "user@example.com" },
+            token: { type: "string", example: "a-secure-random-token" },
+            role: { type: "string", example: "viewer" },
+            acceptedAt: {
+              type: "string",
+              nullable: true,
+              example: "2026-06-18T10:00:00.000Z",
+            },
+            createdAt: { type: "string", example: "2026-06-18T09:00:00.000Z" },
+          },
+        },
+        CreateTripInviteRequest: {
+          type: "object",
+          required: ["email"],
+          properties: {
+            email: { type: "string", example: "user@example.com" },
+            role: { type: "string", enum: ["viewer"], example: "viewer" },
+          },
+        },
         ItineraryItem: {
           type: "object",
           properties: {
@@ -262,6 +286,79 @@ const swaggerSpec = swaggerJsdoc({
             "409": { description: "Participant already exists" },
             ...authResponses,
             ...notFoundResponse,
+          },
+        },
+      },
+      "/trips/{tripId}/invites": {
+        get: {
+          summary: "Get trip invites",
+          description: "Only the trip creator can list invites for a trip.",
+          tags: ["Invites"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          responses: {
+            "200": {
+              description: "Trip invites",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/TripInvite" },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid trip id" },
+            ...authResponses,
+            ...notFoundResponse,
+          },
+        },
+        post: {
+          summary: "Create a trip invite",
+          description: "Only the trip creator can create invite tokens.",
+          tags: ["Invites"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateTripInviteRequest" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Created trip invite",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TripInvite" },
+                },
+              },
+            },
+            "400": { description: "Invalid request" },
+            ...authResponses,
+            ...notFoundResponse,
+          },
+        },
+      },
+      "/trips/invites/{token}/accept": {
+        post: {
+          summary: "Accept a trip invite",
+          description:
+            "Adds the authenticated user as a trip participant with the invite role and marks the invite accepted.",
+          tags: ["Invites"],
+          parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": {
+              description: "Accepted trip invite",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TripInvite" },
+                },
+              },
+            },
+            "409": { description: "Invite already accepted" },
+            "404": { description: "Invite not found" },
+            ...authResponses,
           },
         },
       },

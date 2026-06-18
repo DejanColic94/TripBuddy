@@ -9,6 +9,10 @@ const nonOwnerUserId = 987656;
 
 async function cleanupTestData() {
   await pool.query(
+    "DELETE FROM trip_invites WHERE trip_id IN (SELECT id FROM trips WHERE created_by = $1)",
+    [userId]
+  );
+  await pool.query(
     `
       DELETE FROM trip_participants
       WHERE trip_id IN (SELECT id FROM trips WHERE created_by = $1)
@@ -48,6 +52,8 @@ describe("trip-service endpoints", () => {
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
   );
   let tripId = 0;
+  let inviteToken = "";
+  let duplicateParticipantInviteToken = "";
 
   it("rejects /trips without token", async () => {
     const response = await request(app).get("/trips");
@@ -247,6 +253,122 @@ describe("trip-service endpoints", () => {
 
     expect(getResponse.status).toBe(401);
     expect(postResponse.status).toBe(401);
+  });
+
+  it("allows the owner to create an invite", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "invited@example.com",
+        role: "viewer",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        tripId,
+        email: "invited@example.com",
+        role: "viewer",
+        acceptedAt: null,
+      })
+    );
+    expect(typeof response.body.token).toBe("string");
+    expect(response.body.token.length).toBeGreaterThan(20);
+    inviteToken = response.body.token;
+  });
+
+  it("does not allow a non-owner to create an invite", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`)
+      .send({
+        email: "blocked@example.com",
+        role: "viewer",
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("Trip not found");
+  });
+
+  it("allows the owner to list invites", async () => {
+    const response = await request(app)
+      .get(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tripId,
+          email: "invited@example.com",
+          token: inviteToken,
+          role: "viewer",
+        }),
+      ])
+    );
+  });
+
+  it("accepting an invite adds a participant", async () => {
+    const acceptResponse = await request(app)
+      .post(`/trips/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(acceptResponse.status).toBe(200);
+    expect(acceptResponse.body.acceptedAt).toEqual(expect.any(String));
+
+    const participantsResponse = await request(app)
+      .get(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(participantsResponse.status).toBe(200);
+    expect(participantsResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tripId,
+          userId: nonOwnerUserId,
+          role: "viewer",
+        }),
+      ])
+    );
+  });
+
+  it("accepting an invalid invite token returns 404", async () => {
+    const response = await request(app)
+      .post("/trips/invites/not-a-real-token/accept")
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("Invite not found");
+  });
+
+  it("accepting an already accepted invite returns 409", async () => {
+    const response = await request(app)
+      .post(`/trips/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("Invite already accepted");
+  });
+
+  it("handles duplicate participant acceptance gracefully", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "participant@example.com",
+        role: "viewer",
+      });
+
+    expect(inviteResponse.status).toBe(201);
+    duplicateParticipantInviteToken = inviteResponse.body.token;
+
+    const acceptResponse = await request(app)
+      .post(`/trips/invites/${duplicateParticipantInviteToken}/accept`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(acceptResponse.status).toBe(200);
+    expect(acceptResponse.body.acceptedAt).toEqual(expect.any(String));
   });
 
   it("gets trips with a valid token", async () => {
