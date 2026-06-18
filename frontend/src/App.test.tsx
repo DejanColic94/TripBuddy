@@ -5,15 +5,6 @@ import App from "./App";
 
 type MockResponseBody = Record<string, unknown> | Array<Record<string, unknown>>;
 
-const trip = {
-  id: 1,
-  name: "Paris",
-  description: "Museum weekend",
-  startDate: "2026-06-01",
-  endDate: "2026-06-05",
-  createdBy: 7,
-};
-
 const ownerParticipant = {
   id: 1,
   tripId: 1,
@@ -28,6 +19,29 @@ const viewerParticipant = {
   userId: 8,
   role: "viewer",
   createdAt: "2026-06-18T10:05:00.000Z",
+};
+
+const trip = {
+  id: 1,
+  name: "Paris",
+  description: "Museum weekend",
+  startDate: "2026-06-01",
+  endDate: "2026-06-05",
+  createdBy: 7,
+  participants: [ownerParticipant],
+};
+
+const sharedTrip = {
+  id: 2,
+  name: "Lisbon",
+  description: "Shared coast plan",
+  startDate: "2026-07-10",
+  endDate: "2026-07-14",
+  createdBy: 11,
+  participants: [
+    { userId: 11, role: "owner" },
+    { userId: 7, role: "viewer" },
+  ],
 };
 
 function mockResponse(body: MockResponseBody, status = 200) {
@@ -136,6 +150,42 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByText("Museum weekend")).toBeInTheDocument();
   });
 
+  it("displays participants on dashboard trip cards", async () => {
+    localStorage.setItem("token", "test-token");
+    mockFetch((url) => {
+      if (url.endsWith("/trips")) {
+        return mockResponse([trip]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    const tripCard = (await screen.findByText("Paris")).closest("li") as HTMLElement;
+
+    expect(within(tripCard).getByText("Participants")).toBeInTheDocument();
+    expect(within(tripCard).getByText(/User #7.*owner/)).toBeInTheDocument();
+  });
+
+  it("renders shared trips in the dashboard", async () => {
+    localStorage.setItem("token", "test-token");
+    mockFetch((url) => {
+      if (url.endsWith("/trips")) {
+        return mockResponse([sharedTrip]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    const sharedTripCard = (await screen.findByText("Lisbon")).closest("li") as HTMLElement;
+
+    expect(within(sharedTripCard).getByText("Shared coast plan")).toBeInTheDocument();
+    expect(within(sharedTripCard).getByText(/User #7.*viewer/)).toBeInTheDocument();
+  });
+
   it("creates a trip and adds it to the list", async () => {
     const user = userEvent.setup();
     localStorage.setItem("token", "test-token");
@@ -199,7 +249,7 @@ describe("TripBuddy frontend", () => {
       }
 
       if (url.endsWith("/trips/1/participants")) {
-        return mockResponse([ownerParticipant]);
+        return mockResponse([ownerParticipant, viewerParticipant]);
       }
 
       return mockResponse({});
@@ -224,6 +274,13 @@ describe("TripBuddy frontend", () => {
         return mockResponse([trip]);
       }
 
+      if (url.endsWith("/trips/1")) {
+        return mockResponse({
+          ...trip,
+          participants: [ownerParticipant, viewerParticipant],
+        });
+      }
+
       if (url.endsWith("/trips/1/summary")) {
         return mockResponse({
           itineraryCount: 0,
@@ -234,7 +291,7 @@ describe("TripBuddy frontend", () => {
       }
 
       if (url.endsWith("/trips/1/participants")) {
-        return mockResponse([ownerParticipant]);
+        return mockResponse([ownerParticipant, viewerParticipant]);
       }
 
       if (url.endsWith("/trips/1/itinerary") || url.endsWith("/trips/1/expenses")) {
@@ -253,6 +310,8 @@ describe("TripBuddy frontend", () => {
     expect(participantsHeading).toBeInTheDocument();
     expect(within(participantsSection).getByText("User #7")).toBeInTheDocument();
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("User #8")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("viewer")).toBeInTheDocument();
   });
 
   it("adds a participant and refreshes participants list", async () => {
