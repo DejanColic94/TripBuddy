@@ -112,8 +112,21 @@ textarea {
   min-height: 104px;
 }
 
+select {
+  width: 100%;
+  border: 1px solid #ded6c8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2933;
+  font: inherit;
+  font-weight: 500;
+  padding: 11px 12px;
+  outline: none;
+}
+
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: #256d5a;
   box-shadow: 0 0 0 3px rgba(37, 109, 90, 0.13);
 }
@@ -386,6 +399,13 @@ button:disabled {
   gap: 24px;
 }
 
+.participants-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 24px;
+}
+
 .expenses-layout {
   display: grid;
   grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
@@ -399,6 +419,7 @@ button:disabled {
 
 .trip-info-card h2,
 .metadata-card h2,
+.participant-form-card h2,
 .itinerary-form-card h2,
 .expense-form-card h2 {
   margin: 0;
@@ -440,6 +461,11 @@ button:disabled {
   top: 24px;
 }
 
+.participant-form-card {
+  position: sticky;
+  top: 24px;
+}
+
 .expense-form-card {
   position: sticky;
   top: 24px;
@@ -452,6 +478,12 @@ button:disabled {
 }
 
 .itinerary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.participants-section {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -489,6 +521,14 @@ button:disabled {
 }
 
 .expense-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.participant-list {
   display: grid;
   gap: 14px;
   margin: 0;
@@ -552,7 +592,26 @@ button:disabled {
   padding: 18px 20px;
 }
 
+.participant-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid rgba(222, 214, 200, 0.95);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(31, 41, 51, 0.065);
+  padding: 18px 20px;
+}
+
 .expense-card strong {
+  display: block;
+  color: #17483c;
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.participant-card strong {
   display: block;
   color: #17483c;
   font-size: 1.08rem;
@@ -565,10 +624,26 @@ button:disabled {
   line-height: 1.5;
 }
 
+.participant-card p {
+  margin: 6px 0 0;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
 .expense-card span {
   border: 1px solid rgba(217, 140, 69, 0.28);
   border-radius: 999px;
   background: rgba(243, 200, 146, 0.22);
+  color: #17483c;
+  font-weight: 900;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+
+.participant-card span {
+  border: 1px solid rgba(37, 109, 90, 0.2);
+  border-radius: 999px;
+  background: rgba(37, 109, 90, 0.08);
   color: #17483c;
   font-weight: 900;
   padding: 9px 12px;
@@ -601,6 +676,7 @@ button:disabled {
 
   .auth-layout,
   .trips-layout,
+  .participants-layout,
   .itinerary-layout,
   .expenses-layout {
     grid-template-columns: 1fr;
@@ -638,6 +714,10 @@ button:disabled {
   }
 
   .itinerary-form-card {
+    position: static;
+  }
+
+  .participant-form-card {
     position: static;
   }
 
@@ -687,6 +767,11 @@ button:disabled {
   }
 
   .expense-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .participant-card {
     align-items: flex-start;
     flex-direction: column;
   }
