@@ -201,6 +201,18 @@ function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
                     <span>Start: {formatTripDate(trip.startDate)}</span>
                     <span>End: {formatTripDate(trip.endDate)}</span>
                   </div>
+                  {trip.participants && trip.participants.length > 0 ? (
+                    <div className="trip-card-participants" aria-label={`${trip.name} participants`}>
+                      <p>Participants</p>
+                      <div>
+                        {trip.participants.map((participant) => (
+                          <span key={`${trip.id}-${participant.userId}`}>
+                            User #{participant.userId} · {participant.role}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>

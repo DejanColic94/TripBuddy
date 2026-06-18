@@ -10,6 +10,16 @@ type TripRow = {
   start_date: string | null;
   end_date: string | null;
   created_by: number;
+  created_at: string;
+};
+
+type TripParticipantSummary = {
+  userId: number;
+  role: string;
+};
+
+type TripWithParticipantsRow = TripRow & {
+  participants: TripParticipantSummary[];
 };
 
 type CreateTripBody = {
@@ -17,6 +27,19 @@ type CreateTripBody = {
   description?: string;
   startDate?: string;
   endDate?: string;
+};
+
+type TripParticipantRow = {
+  id: number;
+  trip_id: number;
+  user_id: number;
+  role: string;
+  created_at: string;
+};
+
+type AddTripParticipantBody = {
+  userId?: number;
+  role?: string;
 };
 
 type ItineraryItemRow = {
@@ -62,7 +85,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
-function mapTrip(trip: TripRow) {
+function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
   return {
     id: trip.id,
     name: trip.name,
@@ -70,6 +93,12 @@ function mapTrip(trip: TripRow) {
     startDate: trip.start_date,
     endDate: trip.end_date,
     createdBy: trip.created_by,
+    createdAt: trip.created_at,
+    start_date: trip.start_date,
+    end_date: trip.end_date,
+    created_by: trip.created_by,
+    created_at: trip.created_at,
+    participants,
   };
 }
 
@@ -81,6 +110,16 @@ function mapItineraryItem(item: ItineraryItemRow) {
     description: item.description,
     scheduledDate: item.scheduled_date,
     createdAt: item.created_at,
+  };
+}
+
+function mapTripParticipant(participant: TripParticipantRow) {
+  return {
+    id: participant.id,
+    tripId: participant.trip_id,
+    userId: participant.user_id,
+    role: participant.role,
+    createdAt: participant.created_at,
   };
 }
 
@@ -105,28 +144,203 @@ async function userOwnsTrip(tripId: number, userId: number): Promise<boolean> {
   return result.rowCount !== null && result.rowCount > 0;
 }
 
+async function userCanAccessTrip(tripId: number, userId: number): Promise<boolean> {
+  const result = await pool.query<{ id: number }>(
+    `
+      SELECT trips.id
+      FROM trips
+      LEFT JOIN trip_participants
+        ON trip_participants.trip_id = trips.id
+        AND trip_participants.user_id = $2
+      WHERE trips.id = $1
+        AND (trips.created_by = $2 OR trip_participants.id IS NOT NULL)
+    `,
+    [tripId, userId]
+  );
+
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
 router.get("/", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
-    const result = await pool.query<TripRow>(
+    const result = await pool.query<TripWithParticipantsRow>(
       `
-        SELECT id, name, description, start_date, end_date, created_by
-        FROM trips
-        WHERE created_by = $1
-        ORDER BY created_at DESC
+        WITH visible_trips AS (
+          SELECT DISTINCT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+            trips.created_by, trips.created_at
+          FROM trips
+          LEFT JOIN trip_participants current_user_participants
+            ON current_user_participants.trip_id = trips.id
+            AND current_user_participants.user_id = $1
+          WHERE trips.created_by = $1
+            OR current_user_participants.id IS NOT NULL
+        )
+        SELECT visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
+          visible_trips.created_at,
+          COALESCE(
+            json_agg(
+              json_build_object('userId', trip_participants.user_id, 'role', trip_participants.role)
+              ORDER BY trip_participants.created_at ASC
+            ) FILTER (WHERE trip_participants.id IS NOT NULL),
+            '[]'
+          ) AS participants
+        FROM visible_trips
+        LEFT JOIN trip_participants
+          ON trip_participants.trip_id = visible_trips.id
+        GROUP BY visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
+          visible_trips.created_at
+        ORDER BY visible_trips.created_at DESC
       `,
       [req.user.id]
     );
 
-    return res.status(200).json(result.rows.map(mapTrip));
+    return res.status(200).json(
+      result.rows.map((trip) => mapTrip(trip, trip.participants))
+    );
   } catch (error) {
     console.error("[TRIPS] Failed to get trips:", error);
     return res.status(500).json({ error: "Failed to get trips" });
   }
 });
+
+router.get("/:id", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  try {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const result = await pool.query<TripWithParticipantsRow>(
+      `
+        SELECT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+          trips.created_by, trips.created_at,
+          COALESCE(
+            json_agg(
+              json_build_object('userId', trip_participants.user_id, 'role', trip_participants.role)
+              ORDER BY trip_participants.created_at ASC
+            ) FILTER (WHERE trip_participants.id IS NOT NULL),
+            '[]'
+          ) AS participants
+        FROM trips
+        LEFT JOIN trip_participants
+          ON trip_participants.trip_id = trips.id
+        WHERE trips.id = $1
+        GROUP BY trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+          trips.created_by, trips.created_at
+      `,
+      [tripId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const trip = result.rows[0];
+
+    return res.status(200).json(mapTrip(trip, trip.participants));
+  } catch (error) {
+    console.error("[TRIPS] Failed to get trip:", error);
+    return res.status(500).json({ error: "Failed to get trip" });
+  }
+});
+
+router.get("/:id/participants", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  try {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const result = await pool.query<TripParticipantRow>(
+      `
+        SELECT id, trip_id, user_id, role, created_at
+        FROM trip_participants
+        WHERE trip_id = $1
+        ORDER BY created_at ASC
+      `,
+      [tripId]
+    );
+
+    return res.status(200).json(result.rows.map(mapTripParticipant));
+  } catch (error) {
+    console.error("[TRIPS] Failed to get trip participants:", error);
+    return res.status(500).json({ error: "Failed to get trip participants" });
+  }
+});
+
+router.post(
+  "/:id/participants",
+  async (req: Request<{ id: string }, {}, AddTripParticipantBody>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const { userId, role } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (typeof userId !== "number" || !Number.isInteger(userId)) {
+      return res.status(400).json({ error: "userId is required" });
+    }
+
+    if (role !== undefined && role !== "viewer") {
+      return res.status(400).json({ error: "role must be viewer" });
+    }
+
+    try {
+      if (!(await userOwnsTrip(tripId, req.user.id))) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+
+      const result = await pool.query<TripParticipantRow>(
+        `
+          INSERT INTO trip_participants (trip_id, user_id, role)
+          VALUES ($1, $2, $3)
+          RETURNING id, trip_id, user_id, role, created_at
+        `,
+        [tripId, userId, role ?? "viewer"]
+      );
+
+      return res.status(201).json(mapTripParticipant(result.rows[0]));
+    } catch (error) {
+      const dbError = error as DatabaseError;
+
+      if (dbError.code === "23505") {
+        return res.status(409).json({ error: "Participant already exists" });
+      }
+
+      console.error("[TRIPS] Failed to add trip participant:", error);
+      return res.status(500).json({ error: "Failed to add trip participant" });
+    }
+  }
+);
 
 router.get("/:tripId/summary", async (req: Request, res: Response) => {
   if (!req.user) {
@@ -140,7 +354,7 @@ router.get("/:tripId/summary", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -186,7 +400,7 @@ router.get("/:tripId/expenses", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -277,7 +491,7 @@ router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
+    if (!(await userCanAccessTrip(tripId, req.user.id))) {
       return res.status(404).json({ error: "Trip not found" });
     }
 
@@ -380,9 +594,18 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
       `
         INSERT INTO trips (name, description, start_date, end_date, created_by)
         VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, description, start_date, end_date, created_by
+        RETURNING id, name, description, start_date, end_date, created_by, created_at
       `,
       [name.trim(), description ?? null, startDate ?? null, endDate ?? null, req.user.id]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO trip_participants (trip_id, user_id, role)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (trip_id, user_id) DO NOTHING
+      `,
+      [result.rows[0].id, req.user.id, "owner"]
     );
 
     return res.status(201).json(mapTrip(result.rows[0]));

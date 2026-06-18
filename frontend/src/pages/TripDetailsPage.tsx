@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { API_BASE_URL } from "../config/api";
-import { formatTripDate, type Trip } from "../types/trip";
+import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
 
 type TripDetailsPageProps = {
   token: string;
@@ -39,6 +39,14 @@ type TripSummary = {
   tripDurationDays: number;
 };
 
+type TripParticipant = TripParticipantSummary & {
+  id?: number;
+  tripId?: number;
+  createdAt?: string;
+};
+
+type CreateTripParticipantResponse = TripParticipant | { error?: string };
+
 const formatExpenseAmount = (amount: number, currency: string) => {
   try {
     return new Intl.NumberFormat("en", {
@@ -52,7 +60,11 @@ const formatExpenseAmount = (amount: number, currency: string) => {
 
 function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPageProps) {
   const [summary, setSummary] = useState<TripSummary | null>(null);
+  const [currentTrip, setCurrentTrip] = useState(trip);
+  const [participants, setParticipants] = useState<TripParticipant[]>(trip.participants ?? []);
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
+  const [participantUserId, setParticipantUserId] = useState("");
+  const [participantRole, setParticipantRole] = useState("viewer");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
@@ -62,18 +74,54 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [expenseCurrency, setExpenseCurrency] = useState("EUR");
   const [expenseCategory, setExpenseCategory] = useState("");
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
+  const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
+  const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpensesLoading, setIsExpensesLoading] = useState(true);
   const [isExpenseSubmitting, setIsExpenseSubmitting] = useState(false);
   const [summaryError, setSummaryError] = useState("");
+  const [participantError, setParticipantError] = useState("");
   const [error, setError] = useState("");
   const [expenseError, setExpenseError] = useState("");
+  const [participantSuccessMessage, setParticipantSuccessMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSuccessMessage, setExpenseSuccessMessage] = useState("");
 
   const totalExpenseAmount = expenses.reduce((total, expense) => total + expense.amount, 0);
   const totalExpenseCurrency = expenses[0]?.currency ?? expenseCurrency;
+
+  const loadTripDetails = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = (await response.json()) as Trip;
+      if (!("id" in data)) {
+        return;
+      }
+
+      setCurrentTrip(data);
+
+      if (data.participants) {
+        setParticipants(data.participants);
+      }
+    } catch {
+      // The dedicated participants endpoint below still keeps this page useful.
+    }
+  }, [onUnauthorized, token, trip.id]);
 
   const loadSummary = useCallback(async () => {
     setSummaryError("");
@@ -103,6 +151,42 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
       setSummaryError("Failed to load trip summary");
     } finally {
       setIsSummaryLoading(false);
+    }
+  }, [onUnauthorized, token, trip.id]);
+
+  const loadParticipants = useCallback(async () => {
+    setParticipantError("");
+    setIsParticipantsLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}/participants`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        setParticipantError("Unauthorized");
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as TripParticipant[] | { error?: string };
+
+      if (!response.ok || !Array.isArray(data)) {
+        setParticipantError(("error" in data && data.error) || "Failed to load participants");
+        return;
+      }
+
+      setParticipants(data);
+      setCurrentTrip((activeTrip) => {
+        const updatedTrip = { ...activeTrip, participants: data };
+        return updatedTrip;
+      });
+    } catch {
+      setParticipantError("Failed to load participants");
+    } finally {
+      setIsParticipantsLoading(false);
     }
   }, [onUnauthorized, token, trip.id]);
 
@@ -169,10 +253,63 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   }, [onUnauthorized, token, trip.id]);
 
   useEffect(() => {
+    setCurrentTrip(trip);
+    setParticipants(trip.participants ?? []);
+    void loadTripDetails();
     void loadSummary();
+    void loadParticipants();
     void loadItineraryItems();
     void loadExpenses();
-  }, [loadExpenses, loadItineraryItems, loadSummary]);
+  }, [loadExpenses, loadItineraryItems, loadParticipants, loadSummary, loadTripDetails, trip]);
+
+  const handleParticipantSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setParticipantError("");
+    setParticipantSuccessMessage("");
+    setIsParticipantSubmitting(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}/participants`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: Number(participantUserId),
+          role: participantRole,
+        }),
+      });
+
+      if (response.status === 401) {
+        setParticipantError("Unauthorized");
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as CreateTripParticipantResponse;
+
+      if (!response.ok || !("id" in data)) {
+        if (response.status === 409) {
+          setParticipantError("Participant already exists");
+        } else if (response.status === 404) {
+          setParticipantError("Only the trip owner can add participants");
+        } else {
+          setParticipantError(("error" in data && data.error) || "Failed to add participant");
+        }
+        return;
+      }
+
+      setParticipantUserId("");
+      setParticipantRole("viewer");
+      setParticipantSuccessMessage("Participant added");
+      await loadParticipants();
+    } catch {
+      setParticipantError("Failed to add participant");
+    } finally {
+      setIsParticipantSubmitting(false);
+    }
+  };
 
   const handleItinerarySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -286,8 +423,8 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
       <div className="details-hero">
         <div>
           <p className="eyebrow">Trip details</p>
-          <h1>{trip.name}</h1>
-          <p>{trip.description || "No description added yet."}</p>
+          <h1>{currentTrip.name}</h1>
+          <p>{currentTrip.description || "No description added yet."}</p>
         </div>
         <button className="secondary-button" type="button" onClick={onBack}>
           Back to trips
@@ -297,8 +434,8 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
       <div className="details-layout">
         <section className="panel trip-info-card">
           <p className="eyebrow">Overview</p>
-          <h2>{trip.name}</h2>
-          <p>{trip.description || "No description added yet."}</p>
+          <h2>{currentTrip.name}</h2>
+          <p>{currentTrip.description || "No description added yet."}</p>
         </section>
 
         <section className="panel metadata-card">
@@ -306,15 +443,15 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
           <dl className="metadata-list">
             <div>
               <dt>Start date</dt>
-              <dd>{formatTripDate(trip.startDate)}</dd>
+              <dd>{formatTripDate(currentTrip.startDate)}</dd>
             </div>
             <div>
               <dt>End date</dt>
-              <dd>{formatTripDate(trip.endDate)}</dd>
+              <dd>{formatTripDate(currentTrip.endDate)}</dd>
             </div>
             <div>
               <dt>Created by</dt>
-              <dd>User #{trip.createdBy}</dd>
+              <dd>User #{currentTrip.createdBy}</dd>
             </div>
           </dl>
         </section>
@@ -349,6 +486,72 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
           </div>
         ) : null}
       </section>
+
+      <div className="participants-layout">
+        <section className="panel participant-form-card">
+          <h2>Add participant</h2>
+
+          <form className="form-stack" onSubmit={handleParticipantSubmit}>
+            <label>
+              User ID
+              <input
+                type="number"
+                min="1"
+                value={participantUserId}
+                onChange={(event) => setParticipantUserId(event.target.value)}
+                required
+              />
+            </label>
+
+            <label>
+              Role
+              <select
+                value={participantRole}
+                onChange={(event) => setParticipantRole(event.target.value)}
+              >
+                <option value="viewer">viewer</option>
+              </select>
+            </label>
+
+            <button className="primary-button" type="submit" disabled={isParticipantSubmitting}>
+              {isParticipantSubmitting ? "Adding..." : "Add participant"}
+            </button>
+          </form>
+
+          {participantSuccessMessage ? <p className="success">{participantSuccessMessage}</p> : null}
+        </section>
+
+        <section className="participants-section">
+          <div className="section-heading">
+            <h2>Participants</h2>
+            <span>{participants.length} total</span>
+          </div>
+
+          {participantError ? <p className="error">{participantError}</p> : null}
+          {isParticipantsLoading ? <p className="loading-state">Gathering participants...</p> : null}
+
+          {!isParticipantsLoading && participants.length === 0 ? (
+            <p className="empty-state">No participants yet.</p>
+          ) : null}
+
+          {!isParticipantsLoading && participants.length > 0 ? (
+            <ul className="participant-list">
+              {participants.map((participant) => (
+                <li
+                  className="participant-card"
+                  key={participant.id ?? `${currentTrip.id}-${participant.userId}`}
+                >
+                  <div>
+                    <strong>User #{participant.userId}</strong>
+                    <p>Trip participant</p>
+                  </div>
+                  <span>{participant.role}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      </div>
 
       <div className="itinerary-layout">
         <section className="panel itinerary-form-card">

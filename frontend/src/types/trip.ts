@@ -1,3 +1,8 @@
+export type TripParticipantSummary = {
+  userId: number;
+  role: string;
+};
+
 export type Trip = {
   id: number;
   name: string;
@@ -5,6 +10,7 @@ export type Trip = {
   startDate: string | null;
   endDate: string | null;
   createdBy: number;
+  participants?: TripParticipantSummary[];
 };
 
 export const formatTripDate = (value: string | null) => {
