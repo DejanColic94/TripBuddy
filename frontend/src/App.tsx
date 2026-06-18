@@ -1,15 +1,23 @@
 import { useState } from "react";
 import "./App.css";
+import AcceptInvitePage from "./pages/AcceptInvitePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
 import type { Trip } from "./types/trip";
 
+function getInviteTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/invites\/([^/]+)\/accept\/?$/);
+
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [authPage, setAuthPage] = useState<"login" | "register">("login");
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
+  const [inviteToken, setInviteToken] = useState(() => getInviteTokenFromPath(window.location.pathname));
 
   const handleLogin = (nextToken: string) => {
     localStorage.setItem("token", nextToken);
@@ -22,10 +30,23 @@ function App() {
     setToken(null);
   };
 
+  const handleBackToTrips = () => {
+    window.history.pushState({}, "", "/");
+    setInviteToken(null);
+    setSelectedTrip(null);
+  };
+
   return (
     <main className="app">
       {token ? (
-        selectedTrip ? (
+        inviteToken ? (
+          <AcceptInvitePage
+            token={token}
+            inviteToken={inviteToken}
+            onBackToTrips={handleBackToTrips}
+            onUnauthorized={handleLogout}
+          />
+        ) : selectedTrip ? (
           <TripDetailsPage
             token={token}
             trip={selectedTrip}

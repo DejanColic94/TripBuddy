@@ -21,6 +21,21 @@ const viewerParticipant = {
   createdAt: "2026-06-18T10:05:00.000Z",
 };
 
+const invite = {
+  id: 1,
+  tripId: 1,
+  email: "friend@example.com",
+  token: "invite-token-123",
+  role: "viewer",
+  acceptedAt: null,
+  createdAt: "2026-06-18T10:10:00.000Z",
+};
+
+const acceptedInvite = {
+  ...invite,
+  acceptedAt: "2026-06-18T10:20:00.000Z",
+};
+
 const trip = {
   id: 1,
   name: "Paris",
@@ -77,6 +92,7 @@ function mockDefaultApi() {
 
 beforeEach(() => {
   localStorage.clear();
+  window.history.pushState({}, "", "/");
   vi.restoreAllMocks();
 });
 
@@ -252,6 +268,10 @@ describe("TripBuddy frontend", () => {
         return mockResponse([ownerParticipant, viewerParticipant]);
       }
 
+      if (url.endsWith("/trips/1/invites")) {
+        return mockResponse([]);
+      }
+
       return mockResponse({});
     });
 
@@ -294,6 +314,10 @@ describe("TripBuddy frontend", () => {
         return mockResponse([ownerParticipant, viewerParticipant]);
       }
 
+      if (url.endsWith("/trips/1/invites")) {
+        return mockResponse([invite]);
+      }
+
       if (url.endsWith("/trips/1/itinerary") || url.endsWith("/trips/1/expenses")) {
         return mockResponse([]);
       }
@@ -312,6 +336,113 @@ describe("TripBuddy frontend", () => {
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();
     expect(within(participantsSection).getByText("User #8")).toBeInTheDocument();
     expect(within(participantsSection).getByText("viewer")).toBeInTheDocument();
+  });
+
+  it("renders trip invites in trip details", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("token", "test-token");
+    mockFetch((url) => {
+      if (url.endsWith("/trips")) {
+        return mockResponse([trip]);
+      }
+
+      if (url.endsWith("/trips/1/summary")) {
+        return mockResponse({
+          itineraryCount: 0,
+          expenseCount: 0,
+          totalExpenses: 0,
+          tripDurationDays: 4,
+        });
+      }
+
+      if (url.endsWith("/trips/1/participants")) {
+        return mockResponse([ownerParticipant]);
+      }
+
+      if (url.endsWith("/trips/1/invites")) {
+        return mockResponse([invite]);
+      }
+
+      if (url.endsWith("/trips/1/itinerary") || url.endsWith("/trips/1/expenses")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+
+    const invitesHeading = await screen.findByRole("heading", { name: "Invites" });
+    const invitesSection = invitesHeading.closest("section") as HTMLElement;
+
+    expect(within(invitesSection).getByText("friend@example.com")).toBeInTheDocument();
+    expect(within(invitesSection).getByText("Not accepted")).toBeInTheDocument();
+    expect(within(invitesSection).getByText(/invite-token-123/)).toBeInTheDocument();
+  });
+
+  it("submits invite form and refreshes invite list", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("token", "test-token");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([trip]);
+      }
+
+      if (url.endsWith("/trips/1/summary")) {
+        return mockResponse({
+          itineraryCount: 0,
+          expenseCount: 0,
+          totalExpenses: 0,
+          tripDurationDays: 4,
+        });
+      }
+
+      if (url.endsWith("/trips/1/participants")) {
+        return mockResponse([ownerParticipant]);
+      }
+
+      if (url.endsWith("/trips/1/invites") && init?.method === "POST") {
+        return mockResponse(invite, 201);
+      }
+
+      if (url.endsWith("/trips/1/invites")) {
+        const inviteCalls = fetchMock.mock.calls.filter(([calledUrl]) =>
+          calledUrl.toString().endsWith("/trips/1/invites")
+        );
+
+        return mockResponse(inviteCalls.length > 1 ? [invite] : []);
+      }
+
+      if (url.endsWith("/trips/1/itinerary") || url.endsWith("/trips/1/expenses")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await screen.findByRole("heading", { name: "Invites" });
+
+    await user.type(screen.getByLabelText(/invite email/i), "friend@example.com");
+    await user.selectOptions(screen.getByLabelText(/invite role/i), "viewer");
+    await user.click(screen.getByRole("button", { name: /create invite/i }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/trips/1/invites"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ email: "friend@example.com", role: "viewer" }),
+        })
+      )
+    );
+    expect(await screen.findByText("friend@example.com")).toBeInTheDocument();
   });
 
   it("adds a participant and refreshes participants list", async () => {
@@ -345,6 +476,10 @@ describe("TripBuddy frontend", () => {
         return mockResponse(participantCalls.length > 1 ? [ownerParticipant, viewerParticipant] : [ownerParticipant]);
       }
 
+      if (url.endsWith("/trips/1/invites")) {
+        return mockResponse([]);
+      }
+
       if (url.endsWith("/trips/1/itinerary") || url.endsWith("/trips/1/expenses")) {
         return mockResponse([]);
       }
@@ -358,8 +493,8 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /paris/i }));
     await screen.findAllByText("User #7");
 
-    await user.type(screen.getByLabelText(/user id/i), "8");
-    await user.selectOptions(screen.getByLabelText(/role/i), "viewer");
+    await user.type(screen.getByLabelText(/participant user id/i), "8");
+    await user.selectOptions(screen.getByLabelText(/participant role/i), "viewer");
     await user.click(screen.getByRole("button", { name: /add participant/i }));
 
     await waitFor(() =>
@@ -399,6 +534,10 @@ describe("TripBuddy frontend", () => {
         return mockResponse([ownerParticipant]);
       }
 
+      if (url.endsWith("/trips/1/invites")) {
+        return mockResponse([]);
+      }
+
       if (url.endsWith("/trips/1/itinerary") || url.endsWith("/trips/1/expenses")) {
         return mockResponse([]);
       }
@@ -410,9 +549,59 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /paris/i }));
     await screen.findAllByText("User #7");
 
-    await user.type(screen.getByLabelText(/user id/i), "7");
+    await user.type(screen.getByLabelText(/participant user id/i), "7");
     await user.click(screen.getByRole("button", { name: /add participant/i }));
 
     expect(await screen.findByText("Participant already exists")).toBeInTheDocument();
+  });
+
+  it("shows success when accepting an invite", async () => {
+    localStorage.setItem("token", "test-token");
+    window.history.pushState({}, "", "/invites/invite-token-123/accept");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/invite-token-123/accept") && init?.method === "POST") {
+        return mockResponse(acceptedInvite);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("Invite accepted. This trip is now available in your dashboard.")
+    ).toBeInTheDocument();
+  });
+
+  it("shows an error for an invalid invite", async () => {
+    localStorage.setItem("token", "test-token");
+    window.history.pushState({}, "", "/invites/bad-token/accept");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/bad-token/accept") && init?.method === "POST") {
+        return mockResponse({ error: "Invite not found" }, 404);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Invite not found")).toBeInTheDocument();
+  });
+
+  it("shows an error for an already accepted invite", async () => {
+    localStorage.setItem("token", "test-token");
+    window.history.pushState({}, "", "/invites/used-token/accept");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/used-token/accept") && init?.method === "POST") {
+        return mockResponse({ error: "Invite already accepted" }, 409);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Invite already accepted")).toBeInTheDocument();
   });
 });
