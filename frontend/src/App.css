@@ -438,6 +438,13 @@ button:disabled {
   gap: 24px;
 }
 
+.invites-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 24px;
+}
+
 .expenses-layout {
   display: grid;
   grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
@@ -452,6 +459,7 @@ button:disabled {
 .trip-info-card h2,
 .metadata-card h2,
 .participant-form-card h2,
+.invite-form-card h2,
 .itinerary-form-card h2,
 .expense-form-card h2 {
   margin: 0;
@@ -498,6 +506,11 @@ button:disabled {
   top: 24px;
 }
 
+.invite-form-card {
+  position: sticky;
+  top: 24px;
+}
+
 .expense-form-card {
   position: sticky;
   top: 24px;
@@ -516,6 +529,12 @@ button:disabled {
 }
 
 .participants-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.invites-section {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -561,6 +580,14 @@ button:disabled {
 }
 
 .participant-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invite-list {
   display: grid;
   gap: 14px;
   margin: 0;
@@ -636,6 +663,18 @@ button:disabled {
   padding: 18px 20px;
 }
 
+.invite-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid rgba(222, 214, 200, 0.95);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(31, 41, 51, 0.065);
+  padding: 18px 20px;
+}
+
 .expense-card strong {
   display: block;
   color: #17483c;
@@ -644,6 +683,13 @@ button:disabled {
 }
 
 .participant-card strong {
+  display: block;
+  color: #17483c;
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.invite-card strong {
   display: block;
   color: #17483c;
   font-size: 1.08rem;
@@ -660,6 +706,21 @@ button:disabled {
   margin: 6px 0 0;
   color: #6b7280;
   line-height: 1.5;
+}
+
+.invite-card p {
+  margin: 6px 0 0;
+  color: #6b7280;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.invite-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .expense-card span {
@@ -680,6 +741,22 @@ button:disabled {
   font-weight: 900;
   padding: 9px 12px;
   white-space: nowrap;
+}
+
+.invite-card-meta span {
+  border: 1px solid rgba(37, 109, 90, 0.2);
+  border-radius: 999px;
+  background: rgba(37, 109, 90, 0.08);
+  color: #17483c;
+  font-weight: 900;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+
+.invite-accept-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .error,
@@ -709,6 +786,7 @@ button:disabled {
   .auth-layout,
   .trips-layout,
   .participants-layout,
+  .invites-layout,
   .itinerary-layout,
   .expenses-layout {
     grid-template-columns: 1fr;
@@ -750,6 +828,10 @@ button:disabled {
   }
 
   .participant-form-card {
+    position: static;
+  }
+
+  .invite-form-card {
     position: static;
   }
 
@@ -806,6 +888,14 @@ button:disabled {
   .participant-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .invite-card {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-card-meta {
+    justify-content: flex-start;
   }
 
   .summary-grid {

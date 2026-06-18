@@ -64,6 +64,19 @@ export async function initDb(): Promise<void> {
     console.log("[DB] Trip participants table ensured");
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS trip_invites (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        token VARCHAR(255) UNIQUE NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+        accepted_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[DB] Trip invites table ensured");
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS itinerary_items (
         id SERIAL PRIMARY KEY,
         trip_id INTEGER NOT NULL,

@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { randomBytes } from "crypto";
 import type { DatabaseError } from "pg";
 import pool from "../db";
 import authMiddleware from "../middleware/auth";
@@ -39,6 +40,21 @@ type TripParticipantRow = {
 
 type AddTripParticipantBody = {
   userId?: number;
+  role?: string;
+};
+
+type TripInviteRow = {
+  id: number;
+  trip_id: number;
+  email: string;
+  token: string;
+  role: string;
+  accepted_at: string | null;
+  created_at: string;
+};
+
+type CreateTripInviteBody = {
+  email?: string;
   role?: string;
 };
 
@@ -123,6 +139,18 @@ function mapTripParticipant(participant: TripParticipantRow) {
   };
 }
 
+function mapTripInvite(invite: TripInviteRow) {
+  return {
+    id: invite.id,
+    tripId: invite.trip_id,
+    email: invite.email,
+    token: invite.token,
+    role: invite.role,
+    acceptedAt: invite.accepted_at,
+    createdAt: invite.created_at,
+  };
+}
+
 function mapExpense(expense: ExpenseRow) {
   return {
     id: expense.id,
@@ -159,6 +187,10 @@ async function userCanAccessTrip(tripId: number, userId: number): Promise<boolea
   );
 
   return result.rowCount !== null && result.rowCount > 0;
+}
+
+function generateInviteToken() {
+  return randomBytes(32).toString("hex");
 }
 
 router.get("/", async (req: Request, res: Response) => {
@@ -209,6 +241,62 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+router.post(
+  "/invites/:token/accept",
+  async (req: Request<{ token: string }>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { token } = req.params;
+
+    try {
+      const inviteResult = await pool.query<TripInviteRow>(
+        `
+          SELECT id, trip_id, email, token, role, accepted_at, created_at
+          FROM trip_invites
+          WHERE token = $1
+        `,
+        [token]
+      );
+
+      if (inviteResult.rowCount === 0) {
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      const invite = inviteResult.rows[0];
+
+      if (invite.accepted_at) {
+        return res.status(409).json({ error: "Invite already accepted" });
+      }
+
+      await pool.query(
+        `
+          INSERT INTO trip_participants (trip_id, user_id, role)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (trip_id, user_id) DO NOTHING
+        `,
+        [invite.trip_id, req.user.id, invite.role]
+      );
+
+      const acceptedInviteResult = await pool.query<TripInviteRow>(
+        `
+          UPDATE trip_invites
+          SET accepted_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING id, trip_id, email, token, role, accepted_at, created_at
+        `,
+        [invite.id]
+      );
+
+      return res.status(200).json(mapTripInvite(acceptedInviteResult.rows[0]));
+    } catch (error) {
+      console.error("[TRIPS] Failed to accept trip invite:", error);
+      return res.status(500).json({ error: "Failed to accept trip invite" });
+    }
+  }
+);
+
 router.get("/:id", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -258,6 +346,83 @@ router.get("/:id", async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to get trip" });
   }
 });
+
+router.get("/:id/invites", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  try {
+    if (!(await userOwnsTrip(tripId, req.user.id))) {
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    const result = await pool.query<TripInviteRow>(
+      `
+        SELECT id, trip_id, email, token, role, accepted_at, created_at
+        FROM trip_invites
+        WHERE trip_id = $1
+        ORDER BY created_at DESC
+      `,
+      [tripId]
+    );
+
+    return res.status(200).json(result.rows.map(mapTripInvite));
+  } catch (error) {
+    console.error("[TRIPS] Failed to get trip invites:", error);
+    return res.status(500).json({ error: "Failed to get trip invites" });
+  }
+});
+
+router.post(
+  "/:id/invites",
+  async (req: Request<{ id: string }, {}, CreateTripInviteBody>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const { email, role } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (typeof email !== "string" || email.trim().length === 0) {
+      return res.status(400).json({ error: "email is required" });
+    }
+
+    if (role !== undefined && role !== "viewer") {
+      return res.status(400).json({ error: "role must be viewer" });
+    }
+
+    try {
+      if (!(await userOwnsTrip(tripId, req.user.id))) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+
+      const result = await pool.query<TripInviteRow>(
+        `
+          INSERT INTO trip_invites (trip_id, email, token, role)
+          VALUES ($1, $2, $3, $4)
+          RETURNING id, trip_id, email, token, role, accepted_at, created_at
+        `,
+        [tripId, email.trim().toLowerCase(), generateInviteToken(), role ?? "viewer"]
+      );
+
+      return res.status(201).json(mapTripInvite(result.rows[0]));
+    } catch (error) {
+      console.error("[TRIPS] Failed to create trip invite:", error);
+      return res.status(500).json({ error: "Failed to create trip invite" });
+    }
+  }
+);
 
 router.get("/:id/participants", async (req: Request, res: Response) => {
   if (!req.user) {

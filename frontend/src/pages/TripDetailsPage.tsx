@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  createTripInvite,
+  fetchTripInvites,
+  type TripInvite,
+} from "../api/invites";
 import { API_BASE_URL } from "../config/api";
 import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
 
@@ -47,6 +52,10 @@ type TripParticipant = TripParticipantSummary & {
 
 type CreateTripParticipantResponse = TripParticipant | { error?: string };
 
+function getInviteAcceptedAt(invite: TripInvite) {
+  return invite.acceptedAt ?? invite.accepted_at ?? null;
+}
+
 const formatExpenseAmount = (amount: number, currency: string) => {
   try {
     return new Intl.NumberFormat("en", {
@@ -62,9 +71,12 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [summary, setSummary] = useState<TripSummary | null>(null);
   const [currentTrip, setCurrentTrip] = useState(trip);
   const [participants, setParticipants] = useState<TripParticipant[]>(trip.participants ?? []);
+  const [invites, setInvites] = useState<TripInvite[]>([]);
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
   const [participantUserId, setParticipantUserId] = useState("");
   const [participantRole, setParticipantRole] = useState("viewer");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("viewer");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
@@ -76,20 +88,25 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
+  const [isInvitesLoading, setIsInvitesLoading] = useState(true);
+  const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpensesLoading, setIsExpensesLoading] = useState(true);
   const [isExpenseSubmitting, setIsExpenseSubmitting] = useState(false);
   const [summaryError, setSummaryError] = useState("");
   const [participantError, setParticipantError] = useState("");
+  const [inviteError, setInviteError] = useState("");
   const [error, setError] = useState("");
   const [expenseError, setExpenseError] = useState("");
   const [participantSuccessMessage, setParticipantSuccessMessage] = useState("");
+  const [inviteSuccessMessage, setInviteSuccessMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSuccessMessage, setExpenseSuccessMessage] = useState("");
 
   const totalExpenseAmount = expenses.reduce((total, expense) => total + expense.amount, 0);
   const totalExpenseCurrency = expenses[0]?.currency ?? expenseCurrency;
+  const inviteBaseUrl = `${window.location.origin}/invites`;
 
   const loadTripDetails = useCallback(async () => {
     try {
@@ -190,6 +207,36 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
     }
   }, [onUnauthorized, token, trip.id]);
 
+  const loadInvites = useCallback(async () => {
+    setInviteError("");
+    setIsInvitesLoading(true);
+
+    try {
+      const { response, data } = await fetchTripInvites(trip.id, token);
+
+      if (response.status === 401) {
+        setInviteError("Unauthorized");
+        onUnauthorized();
+        return;
+      }
+
+      if (!response.ok || !Array.isArray(data)) {
+        setInviteError(
+          response.status === 404
+            ? "Only the trip owner can manage invites"
+            : ("error" in data && data.error) || "Failed to load invites"
+        );
+        return;
+      }
+
+      setInvites(data);
+    } catch {
+      setInviteError("Failed to load invites");
+    } finally {
+      setIsInvitesLoading(false);
+    }
+  }, [onUnauthorized, token, trip.id]);
+
   const loadItineraryItems = useCallback(async () => {
     setError("");
     setIsLoading(true);
@@ -258,9 +305,18 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
     void loadTripDetails();
     void loadSummary();
     void loadParticipants();
+    void loadInvites();
     void loadItineraryItems();
     void loadExpenses();
-  }, [loadExpenses, loadItineraryItems, loadParticipants, loadSummary, loadTripDetails, trip]);
+  }, [
+    loadExpenses,
+    loadInvites,
+    loadItineraryItems,
+    loadParticipants,
+    loadSummary,
+    loadTripDetails,
+    trip,
+  ]);
 
   const handleParticipantSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -308,6 +364,44 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
       setParticipantError("Failed to add participant");
     } finally {
       setIsParticipantSubmitting(false);
+    }
+  };
+
+  const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setInviteError("");
+    setInviteSuccessMessage("");
+    setIsInviteSubmitting(true);
+
+    try {
+      const { response, data } = await createTripInvite(trip.id, token, {
+        email: inviteEmail,
+        role: inviteRole,
+      });
+
+      if (response.status === 401) {
+        setInviteError("Unauthorized");
+        onUnauthorized();
+        return;
+      }
+
+      if (!response.ok || !("id" in data)) {
+        setInviteError(
+          response.status === 404
+            ? "Only the trip owner can create invites"
+            : ("error" in data && data.error) || "Failed to create invite"
+        );
+        return;
+      }
+
+      setInviteEmail("");
+      setInviteRole("viewer");
+      setInviteSuccessMessage("Invite created");
+      await loadInvites();
+    } catch {
+      setInviteError("Failed to create invite");
+    } finally {
+      setIsInviteSubmitting(false);
     }
   };
 
@@ -493,7 +587,7 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
 
           <form className="form-stack" onSubmit={handleParticipantSubmit}>
             <label>
-              User ID
+              Participant user ID
               <input
                 type="number"
                 min="1"
@@ -504,7 +598,7 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
             </label>
 
             <label>
-              Role
+              Participant role
               <select
                 value={participantRole}
                 onChange={(event) => setParticipantRole(event.target.value)}
@@ -548,6 +642,72 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
                   <span>{participant.role}</span>
                 </li>
               ))}
+            </ul>
+          ) : null}
+        </section>
+      </div>
+
+      <div className="invites-layout">
+        <section className="panel invite-form-card">
+          <h2>Create invite</h2>
+
+          <form className="form-stack" onSubmit={handleInviteSubmit}>
+            <label>
+              Invite email
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                required
+              />
+            </label>
+
+            <label>
+              Invite role
+              <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value)}>
+                <option value="viewer">viewer</option>
+              </select>
+            </label>
+
+            <button className="primary-button" type="submit" disabled={isInviteSubmitting}>
+              {isInviteSubmitting ? "Creating..." : "Create invite"}
+            </button>
+          </form>
+
+          {inviteSuccessMessage ? <p className="success">{inviteSuccessMessage}</p> : null}
+        </section>
+
+        <section className="invites-section">
+          <div className="section-heading">
+            <h2>Invites</h2>
+            <span>{invites.length} total</span>
+          </div>
+
+          {inviteError ? <p className="error">{inviteError}</p> : null}
+          {isInvitesLoading ? <p className="loading-state">Gathering invites...</p> : null}
+
+          {!isInvitesLoading && invites.length === 0 ? (
+            <p className="empty-state">No invites yet. Create one to share this trip by link.</p>
+          ) : null}
+
+          {!isInvitesLoading && invites.length > 0 ? (
+            <ul className="invite-list">
+              {invites.map((invite) => {
+                const inviteLink = `${inviteBaseUrl}/${invite.token}/accept`;
+
+                return (
+                  <li className="invite-card" key={invite.id}>
+                    <div>
+                      <strong>{invite.email}</strong>
+                      <p>{inviteLink}</p>
+                    </div>
+                    <div className="invite-card-meta">
+                      <span>{invite.role}</span>
+                      <span>{getInviteAcceptedAt(invite) ? "Accepted" : "Not accepted"}</span>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
         </section>
