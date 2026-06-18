@@ -147,3 +147,30 @@ npm test
 ```
 
 The tests use Jest + Supertest and expect the local PostgreSQL databases to be available. See `.env.test.example` in each service for the default test database settings.
+
+## Docker Compose quick reference
+
+Start the stack:
+
+```bash
+docker compose up
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+If a service has stale dependencies, rebuild that service without cache. For example:
+
+```bash
+docker compose build --no-cache frontend
+```
+
+To reset everything, including PostgreSQL data:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
