@@ -174,3 +174,13 @@ To reset everything, including PostgreSQL data:
 docker compose down -v
 docker compose up --build
 ```
+
+## Production backend
+
+The production Compose stack runs the gateway, backend services, and PostgreSQL databases. The frontend is deployed separately and is not included.
+
+Start the production backend on the VPS:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
