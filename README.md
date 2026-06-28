@@ -148,6 +148,10 @@ npm test
 
 The tests use Jest + Supertest and expect the local PostgreSQL databases to be available. See `.env.test.example` in each service for the default test database settings.
 
+## Continuous integration
+
+GitHub Actions automatically runs the identity-service, trip-service, and frontend test suites on pushes to `develop` or `master`, and on pull requests targeting `develop`.
+
 ## Docker Compose quick reference
 
 Start the stack:
