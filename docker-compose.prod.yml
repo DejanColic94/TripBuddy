@@ -24,9 +24,9 @@ services:
       IDENTITY_DB_HOST: identity-db
       IDENTITY_DB_PORT: 5432
       IDENTITY_DB_NAME: ${IDENTITY_DB_NAME:-identity_db}
-      IDENTITY_DB_USER: ${IDENTITY_DB_USER:-postgres}
-      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:-postgres}
-      IDENTITY_JWT_SECRET: ${IDENTITY_JWT_SECRET:-tripbuddy_identity_secret}
+      IDENTITY_DB_USER: ${IDENTITY_DB_USER:-tripbuddy_identity_user}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:-change_me}
+      IDENTITY_JWT_SECRET: ${IDENTITY_JWT_SECRET:-change_me}
     depends_on:
       identity-db:
         condition: service_healthy
@@ -41,9 +41,9 @@ services:
       TRIP_DB_HOST: trip-db
       TRIP_DB_PORT: 5432
       TRIP_DB_NAME: ${TRIP_DB_NAME:-trip_db}
-      TRIP_DB_USER: ${TRIP_DB_USER:-postgres}
-      TRIP_DB_PASSWORD: ${TRIP_DB_PASSWORD:-postgres}
-      TRIP_JWT_SECRET: ${IDENTITY_JWT_SECRET:-tripbuddy_identity_secret}
+      TRIP_DB_USER: ${TRIP_DB_USER:-tripbuddy_trip_user}
+      TRIP_DB_PASSWORD: ${TRIP_DB_PASSWORD:-change_me}
+      TRIP_JWT_SECRET: ${IDENTITY_JWT_SECRET:-change_me}
     depends_on:
       trip-db:
         condition: service_healthy
@@ -54,10 +54,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${IDENTITY_DB_NAME:-identity_db}
-      POSTGRES_USER: ${IDENTITY_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${IDENTITY_DB_USER:-tripbuddy_identity_user}
+      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:-change_me}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${IDENTITY_DB_USER:-postgres} -d ${IDENTITY_DB_NAME:-identity_db}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${IDENTITY_DB_USER:-tripbuddy_identity_user} -d ${IDENTITY_DB_NAME:-identity_db}
       interval: 5s
       timeout: 5s
       retries: 10
@@ -70,10 +72,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${TRIP_DB_NAME:-trip_db}
-      POSTGRES_USER: ${TRIP_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${TRIP_DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${TRIP_DB_USER:-tripbuddy_trip_user}
+      POSTGRES_PASSWORD: ${TRIP_DB_PASSWORD:-change_me}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${TRIP_DB_USER:-postgres} -d ${TRIP_DB_NAME:-trip_db}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${TRIP_DB_USER:-tripbuddy_trip_user} -d ${TRIP_DB_NAME:-trip_db}
       interval: 5s
       timeout: 5s
       retries: 10

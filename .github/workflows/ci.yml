@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+  push:
+    branches:
+      - develop
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  identity-service:
+    name: Identity service tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/identity-service
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: identity_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d identity_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IDENTITY_DB_HOST: localhost
+      IDENTITY_DB_PORT: 5432
+      IDENTITY_DB_NAME: identity_db
+      IDENTITY_DB_USER: postgres
+      IDENTITY_DB_PASSWORD: postgres
+      IDENTITY_JWT_SECRET: test_identity_secret
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: services/identity-service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+  trip-service:
+    name: Trip service tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/trip-service
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: trip_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d trip_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TRIP_DB_HOST: localhost
+      TRIP_DB_PORT: 5432
+      TRIP_DB_NAME: trip_db
+      TRIP_DB_USER: postgres
+      TRIP_DB_PASSWORD: postgres
+      TRIP_JWT_SECRET: test_identity_secret
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: services/trip-service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+  frontend:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc -b
+
+      - name: Run tests
+        run: npm test

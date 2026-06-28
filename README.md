@@ -148,6 +148,26 @@ npm test
 
 The tests use Jest + Supertest and expect the local PostgreSQL databases to be available. See `.env.test.example` in each service for the default test database settings.
 
+## Continuous integration
+
+GitHub Actions automatically runs the identity-service, trip-service, and frontend test suites on pushes to `develop` or `master`, and on pull requests targeting `develop`.
+
+## Production backend
+
+On the VPS, copy the production environment template:
+
+```bash
+cp .env.production.example .env.production
+```
+
+Fill `.env.production` with real database credentials and a strong JWT secret. Do not commit `.env.production`.
+
+Start the production backend:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
 ## Docker Compose quick reference
 
 Start the stack:
