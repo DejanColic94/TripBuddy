@@ -636,7 +636,7 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
                   key={participant.id ?? `${currentTrip.id}-${participant.userId}`}
                 >
                   <div>
-                    <strong>User #{participant.userId}</strong>
+                    <strong>{participant.name || `User #${participant.userId}`}</strong>
                     <p>Trip participant</p>
                   </div>
                   <span>{participant.role}</span>

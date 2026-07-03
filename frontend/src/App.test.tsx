@@ -5,10 +5,18 @@ import App from "./App";
 
 type MockResponseBody = Record<string, unknown> | Array<Record<string, unknown>>;
 
+const authUser = {
+  id: 7,
+  name: "Ana Traveler",
+  email: "test@example.com",
+  role: "user",
+};
+
 const ownerParticipant = {
   id: 1,
   tripId: 1,
   userId: 7,
+  name: "Ana Traveler",
   role: "owner",
   createdAt: "2026-06-18T10:00:00.000Z",
 };
@@ -17,6 +25,7 @@ const viewerParticipant = {
   id: 2,
   tripId: 1,
   userId: 8,
+  name: "Milan Traveler",
   role: "viewer",
   createdAt: "2026-06-18T10:05:00.000Z",
 };
@@ -54,8 +63,8 @@ const sharedTrip = {
   endDate: "2026-07-14",
   createdBy: 11,
   participants: [
-    { userId: 11, role: "owner" },
-    { userId: 7, role: "viewer" },
+    { userId: 11, name: "Trip Owner", role: "owner" },
+    { userId: 7, name: "Ana Traveler", role: "viewer" },
   ],
 };
 
@@ -79,7 +88,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Respons
 function mockDefaultApi() {
   mockFetch((url, init) => {
     if (url.endsWith("/auth/login") && init?.method === "POST") {
-      return mockResponse({ token: "test-token" });
+      return mockResponse({ token: "test-token", user: authUser });
     }
 
     if (url.endsWith("/trips") && !init?.method) {
@@ -119,6 +128,38 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByRole("heading", { name: "Register" })).toBeInTheDocument();
   });
 
+  it("registers with a name and returns to login", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/register") && init?.method === "POST") {
+        return mockResponse({ message: "User registered successfully" }, 201);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+    await user.type(screen.getByLabelText(/^name$/i), "Ana Traveler");
+    await user.type(screen.getByLabelText(/email/i), "ana@example.com");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /^register$/i }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/auth/register"),
+        expect.objectContaining({
+          body: JSON.stringify({
+            name: "Ana Traveler",
+            email: "ana@example.com",
+            password: "password123",
+          }),
+        })
+      )
+    );
+    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+  });
+
   it("stores token after successful login", async () => {
     const user = userEvent.setup();
     mockDefaultApi();
@@ -129,7 +170,9 @@ describe("TripBuddy frontend", () => {
     await user.click(screen.getByRole("button", { name: "Login" }));
 
     await waitFor(() => expect(localStorage.getItem("token")).toBe("test-token"));
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
     expect(await screen.findByRole("heading", { name: /your trips/i })).toBeInTheDocument();
+    expect(screen.getByText("Ana Traveler")).toBeInTheDocument();
   });
 
   it("shows error on failed login", async () => {
@@ -181,7 +224,7 @@ describe("TripBuddy frontend", () => {
     const tripCard = (await screen.findByText("Paris")).closest("li") as HTMLElement;
 
     expect(within(tripCard).getByText("Participants")).toBeInTheDocument();
-    expect(within(tripCard).getByText(/User #7.*owner/)).toBeInTheDocument();
+    expect(within(tripCard).getByText(/Ana Traveler.*owner/)).toBeInTheDocument();
   });
 
   it("renders shared trips in the dashboard", async () => {
@@ -199,7 +242,7 @@ describe("TripBuddy frontend", () => {
     const sharedTripCard = (await screen.findByText("Lisbon")).closest("li") as HTMLElement;
 
     expect(within(sharedTripCard).getByText("Shared coast plan")).toBeInTheDocument();
-    expect(within(sharedTripCard).getByText(/User #7.*viewer/)).toBeInTheDocument();
+    expect(within(sharedTripCard).getByText(/Ana Traveler.*viewer/)).toBeInTheDocument();
   });
 
   it("creates a trip and adds it to the list", async () => {
@@ -332,9 +375,9 @@ describe("TripBuddy frontend", () => {
     const participantsSection = participantsHeading.closest("section") as HTMLElement;
 
     expect(participantsHeading).toBeInTheDocument();
-    expect(within(participantsSection).getByText("User #7")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();
-    expect(within(participantsSection).getByText("User #8")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("Milan Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("viewer")).toBeInTheDocument();
   });
 
@@ -491,7 +534,7 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /paris/i }));
-    await screen.findAllByText("User #7");
+    await screen.findAllByText("Ana Traveler");
 
     await user.type(screen.getByLabelText(/participant user id/i), "8");
     await user.selectOptions(screen.getByLabelText(/participant role/i), "viewer");
@@ -506,7 +549,7 @@ describe("TripBuddy frontend", () => {
         })
       )
     );
-    expect(await screen.findByText("User #8")).toBeInTheDocument();
+    expect(await screen.findByText("Milan Traveler")).toBeInTheDocument();
   });
 
   it("shows duplicate participant error", async () => {
@@ -547,7 +590,7 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /paris/i }));
-    await screen.findAllByText("User #7");
+    await screen.findAllByText("Ana Traveler");
 
     await user.type(screen.getByLabelText(/participant user id/i), "7");
     await user.click(screen.getByRole("button", { name: /add participant/i }));

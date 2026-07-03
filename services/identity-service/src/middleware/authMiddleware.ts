@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 export interface AuthenticatedUser {
   id: number;
   email: string;
+  name?: string;
   role: string;
 }
 
@@ -50,6 +51,7 @@ export default function authMiddleware(
     req.user = {
       id: Number(decoded.id),
       email: String(decoded.email),
+      name: "name" in decoded ? String(decoded.name) : undefined,
       role: String(decoded.role),
     };
 

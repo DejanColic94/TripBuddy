@@ -13,7 +13,13 @@ router.get("/test", (_req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  const { email, password } = req.body;
+  const { name, email, password } = req.body;
+
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return res.status(400).json({
+      message: "Name is required",
+    });
+  }
 
   if (!email || !password) {
     return res.status(400).json({
@@ -24,8 +30,8 @@ router.post("/register", async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, role;",
-      [email, hashedPassword]
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email, role;",
+      [name.trim(), email, hashedPassword]
     );
 
     return res.status(201).json({
@@ -65,7 +71,7 @@ router.post("/login", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT id, email, password, role FROM users WHERE email = $1;",
+      "SELECT id, name, email, password, role FROM users WHERE email = $1;",
       [email]
     );
     const user = result.rows[0];
@@ -83,7 +89,7 @@ router.post("/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, name: user.name, email: user.email, role: user.role },
       jwtSecret,
       { expiresIn: "1h" }
     );
@@ -93,6 +99,7 @@ router.post("/login", async (req, res) => {
       token,
       user: {
         id: user.id,
+        name: user.name,
         email: user.email,
         role: user.role,
       },
@@ -102,6 +109,30 @@ router.post("/login", async (req, res) => {
     return res.status(500).json({
       message: "Failed to login",
     });
+  }
+});
+
+router.get("/users", authMiddleware, async (req, res) => {
+  const idsParam = typeof req.query.ids === "string" ? req.query.ids : "";
+  const ids = idsParam
+    .split(",")
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0);
+
+  if (ids.length === 0) {
+    return res.status(200).json([]);
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT id, name FROM users WHERE id = ANY($1::int[]) ORDER BY id;",
+      [Array.from(new Set(ids))]
+    );
+
+    return res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("[IDENTITY] User lookup failed:", error);
+    return res.status(500).json({ message: "Failed to get users" });
   }
 });
 

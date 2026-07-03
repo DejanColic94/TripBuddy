@@ -1,5 +1,6 @@
 export type TripParticipantSummary = {
   userId: number;
+  name?: string;
   role: string;
 };
 

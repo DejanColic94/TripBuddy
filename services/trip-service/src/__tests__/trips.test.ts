@@ -6,6 +6,11 @@ import pool, { initDb } from "../db";
 const userId = 987654;
 const participantUserId = 987655;
 const nonOwnerUserId = 987656;
+const userNames = new Map([
+  [userId, "Owner Traveler"],
+  [participantUserId, "Shared Traveler"],
+  [nonOwnerUserId, "Invited Traveler"],
+]);
 
 async function cleanupTestData() {
   await pool.query(
@@ -32,6 +37,20 @@ async function cleanupTestData() {
 
 beforeAll(async () => {
   process.env.TRIP_JWT_SECRET ??= "test_identity_secret";
+  jest.spyOn(global, "fetch").mockImplementation(async (input) => {
+    const url = new URL(input.toString());
+    const ids = (url.searchParams.get("ids") ?? "")
+      .split(",")
+      .map(Number);
+
+    return {
+      ok: true,
+      json: async () =>
+        ids
+          .filter((id) => userNames.has(id))
+          .map((id) => ({ id, name: userNames.get(id) })),
+    } as Response;
+  });
   await initDb();
   await cleanupTestData();
 });
@@ -39,6 +58,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await cleanupTestData();
   await pool.end();
+  jest.restoreAllMocks();
 });
 
 describe("trip-service endpoints", () => {
@@ -88,6 +108,7 @@ describe("trip-service endpoints", () => {
         expect.objectContaining({
           tripId,
           userId,
+          name: "Owner Traveler",
           role: "owner",
         }),
       ])
@@ -117,6 +138,7 @@ describe("trip-service endpoints", () => {
       expect.objectContaining({
         tripId,
         userId: participantUserId,
+        name: "Shared Traveler",
         role: "viewer",
       })
     );
@@ -132,6 +154,7 @@ describe("trip-service endpoints", () => {
       expect.arrayContaining([
         expect.objectContaining({
           userId: participantUserId,
+          name: "Shared Traveler",
           role: "viewer",
         }),
       ])
@@ -153,8 +176,12 @@ describe("trip-service endpoints", () => {
           end_date: expect.any(String),
           created_by: userId,
           participants: expect.arrayContaining([
-            expect.objectContaining({ userId, role: "owner" }),
-            expect.objectContaining({ userId: participantUserId, role: "viewer" }),
+            expect.objectContaining({ userId, name: "Owner Traveler", role: "owner" }),
+            expect.objectContaining({
+              userId: participantUserId,
+              name: "Shared Traveler",
+              role: "viewer",
+            }),
           ]),
         }),
       ])
@@ -172,8 +199,12 @@ describe("trip-service endpoints", () => {
         expect.objectContaining({
           id: tripId,
           participants: expect.arrayContaining([
-            expect.objectContaining({ userId, role: "owner" }),
-            expect.objectContaining({ userId: participantUserId, role: "viewer" }),
+            expect.objectContaining({ userId, name: "Owner Traveler", role: "owner" }),
+            expect.objectContaining({
+              userId: participantUserId,
+              name: "Shared Traveler",
+              role: "viewer",
+            }),
           ]),
         }),
       ])
@@ -200,7 +231,11 @@ describe("trip-service endpoints", () => {
         id: tripId,
         name: "Test Trip",
         participants: expect.arrayContaining([
-          expect.objectContaining({ userId: participantUserId, role: "viewer" }),
+          expect.objectContaining({
+            userId: participantUserId,
+            name: "Shared Traveler",
+            role: "viewer",
+          }),
         ]),
       })
     );

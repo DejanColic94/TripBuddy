@@ -53,6 +53,7 @@ const swaggerSpec = swaggerJsdoc({
           type: "object",
           properties: {
             userId: { type: "number", example: 2 },
+            name: { type: "string", example: "Ana Petrovic" },
             role: { type: "string", example: "viewer" },
           },
         },
@@ -81,6 +82,7 @@ const swaggerSpec = swaggerJsdoc({
             id: { type: "number", example: 1 },
             tripId: { type: "number", example: 1 },
             userId: { type: "number", example: 2 },
+            name: { type: "string", example: "Ana Petrovic" },
             role: { type: "string", example: "viewer" },
             createdAt: { type: "string", example: "2026-06-18T10:00:00.000Z" },
           },
