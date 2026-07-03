@@ -176,6 +176,16 @@ button:disabled {
   background: #efe7d8;
 }
 
+.danger-button {
+  border-color: rgba(180, 35, 24, 0.24);
+  background: #ffffff;
+  color: #b42318;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: rgba(180, 35, 24, 0.08);
+}
+
 .link-button {
   width: 100%;
 }
@@ -390,6 +400,18 @@ button:disabled {
   margin: 14px 0 0;
   color: #6b7280;
   line-height: 1.7;
+}
+
+.details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.trip-edit-card {
+  display: grid;
+  gap: 18px;
 }
 
 .details-layout {
@@ -827,6 +849,11 @@ button:disabled {
 
   .details-hero {
     flex-direction: column;
+  }
+
+  .details-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .create-trip-card {

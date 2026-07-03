@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "./App.css";
+import { API_BASE_URL } from "./config/api";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -32,6 +33,9 @@ function getStoredUser() {
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(getStoredUser);
+  const [isAuthBootstrapping, setIsAuthBootstrapping] = useState(
+    () => Boolean(localStorage.getItem("token") && !localStorage.getItem("user"))
+  );
   const [authPage, setAuthPage] = useState<"login" | "register">("login");
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [inviteToken, setInviteToken] = useState(() => getInviteTokenFromPath(window.location.pathname));
@@ -43,13 +47,60 @@ function App() {
     setToken(nextToken);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setCurrentUser(null);
     setSelectedTrip(null);
     setToken(null);
-  };
+    setIsAuthBootstrapping(false);
+  }, []);
+
+  useEffect(() => {
+    if (!token || currentUser) {
+      setIsAuthBootstrapping(false);
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function restoreUser() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const user = (await response.json()) as AuthUser;
+
+        if (
+          !response.ok ||
+          typeof user.id !== "number" ||
+          typeof user.name !== "string" ||
+          typeof user.email !== "string" ||
+          typeof user.role !== "string"
+        ) {
+          throw new Error("Failed to restore session");
+        }
+
+        if (!isCancelled) {
+          localStorage.setItem("user", JSON.stringify(user));
+          setCurrentUser(user);
+          setIsAuthBootstrapping(false);
+        }
+      } catch {
+        if (!isCancelled) {
+          handleLogout();
+        }
+      }
+    }
+
+    void restoreUser();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser, handleLogout, token]);
 
   const handleBackToTrips = () => {
     window.history.pushState({}, "", "/");
@@ -59,7 +110,9 @@ function App() {
 
   return (
     <main className="app">
-      {token ? (
+      {isAuthBootstrapping ? (
+        <p className="loading-state">Restoring your session...</p>
+      ) : token ? (
         inviteToken ? (
           <AcceptInvitePage
             token={token}
@@ -71,7 +124,10 @@ function App() {
           <TripDetailsPage
             token={token}
             trip={selectedTrip}
+            canManage={currentUser?.id === selectedTrip.createdBy}
             onBack={() => setSelectedTrip(null)}
+            onTripUpdated={setSelectedTrip}
+            onTripDeleted={() => setSelectedTrip(null)}
             onUnauthorized={handleLogout}
           />
         ) : (

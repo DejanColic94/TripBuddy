@@ -8,6 +8,7 @@ export type Trip = {
   id: number;
   name: string;
   description: string | null;
+  destination: string | null;
   startDate: string | null;
   endDate: string | null;
   createdBy: number;

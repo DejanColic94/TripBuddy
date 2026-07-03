@@ -136,14 +136,28 @@ router.get("/users", authMiddleware, async (req, res) => {
   }
 });
 
-router.get("/me", authMiddleware, (req, res) => {
+router.get("/me", authMiddleware, async (req, res) => {
   if (!req.user) {
     return res.status(401).json({
       message: "Unauthorized",
     });
   }
 
-  return res.status(200).json(req.user);
+  try {
+    const result = await pool.query(
+      "SELECT id, name, email, role FROM users WHERE id = $1;",
+      [req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    return res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error("[IDENTITY] Current user lookup failed:", error);
+    return res.status(500).json({ message: "Failed to get current user" });
+  }
 });
 
 export default router;

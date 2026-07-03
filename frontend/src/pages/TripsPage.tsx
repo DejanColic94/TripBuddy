@@ -16,6 +16,7 @@ function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPa
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [destination, setDestination] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [error, setError] = useState("");
@@ -73,6 +74,7 @@ function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPa
         body: JSON.stringify({
           name,
           description: description || undefined,
+          destination: destination || undefined,
           startDate: startDate || undefined,
           endDate: endDate || undefined,
         }),
@@ -93,6 +95,7 @@ function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPa
       setTrips((currentTrips) => [data, ...currentTrips]);
       setName("");
       setDescription("");
+      setDestination("");
       setStartDate("");
       setEndDate("");
       setSuccessMessage("Trip created");
@@ -135,6 +138,14 @@ function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPa
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 rows={3}
+              />
+            </label>
+
+            <label>
+              Destination
+              <input
+                value={destination}
+                onChange={(event) => setDestination(event.target.value)}
               />
             </label>
 
