@@ -9,6 +9,7 @@ type TripRow = {
   id: number;
   name: string;
   description: string | null;
+  destination: string | null;
   start_date: string | null;
   end_date: string | null;
   created_by: number;
@@ -28,6 +29,7 @@ type TripWithParticipantsRow = TripRow & {
 type CreateTripBody = {
   name?: string;
   description?: string;
+  destination?: string;
   startDate?: string;
   endDate?: string;
 };
@@ -108,6 +110,7 @@ function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
     id: trip.id,
     name: trip.name,
     description: trip.description,
+    destination: trip.destination,
     startDate: trip.start_date,
     endDate: trip.end_date,
     createdBy: trip.created_by,
@@ -190,6 +193,15 @@ async function userOwnsTrip(tripId: number, userId: number): Promise<boolean> {
   return result.rowCount !== null && result.rowCount > 0;
 }
 
+async function getTripOwnerId(tripId: number): Promise<number | null> {
+  const result = await pool.query<{ created_by: number }>(
+    "SELECT created_by FROM trips WHERE id = $1",
+    [tripId]
+  );
+
+  return result.rows[0]?.created_by ?? null;
+}
+
 async function userCanAccessTrip(tripId: number, userId: number): Promise<boolean> {
   const result = await pool.query<{ id: number }>(
     `
@@ -220,7 +232,8 @@ router.get("/", async (req: Request, res: Response) => {
     const result = await pool.query<TripWithParticipantsRow>(
       `
         WITH visible_trips AS (
-          SELECT DISTINCT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+          SELECT DISTINCT trips.id, trips.name, trips.description, trips.destination,
+            trips.start_date, trips.end_date,
             trips.created_by, trips.created_at
           FROM trips
           LEFT JOIN trip_participants current_user_participants
@@ -230,6 +243,7 @@ router.get("/", async (req: Request, res: Response) => {
             OR current_user_participants.id IS NOT NULL
         )
         SELECT visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.destination,
           visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
           visible_trips.created_at,
           COALESCE(
@@ -243,6 +257,7 @@ router.get("/", async (req: Request, res: Response) => {
         LEFT JOIN trip_participants
           ON trip_participants.trip_id = visible_trips.id
         GROUP BY visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.destination,
           visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
           visible_trips.created_at
         ORDER BY visible_trips.created_at DESC
@@ -348,7 +363,8 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const result = await pool.query<TripWithParticipantsRow>(
       `
-        SELECT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+        SELECT trips.id, trips.name, trips.description, trips.destination,
+          trips.start_date, trips.end_date,
           trips.created_by, trips.created_at,
           COALESCE(
             json_agg(
@@ -361,7 +377,8 @@ router.get("/:id", async (req: Request, res: Response) => {
         LEFT JOIN trip_participants
           ON trip_participants.trip_id = trips.id
         WHERE trips.id = $1
-        GROUP BY trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+        GROUP BY trips.id, trips.name, trips.description, trips.destination,
+          trips.start_date, trips.end_date,
           trips.created_by, trips.created_at
       `,
       [tripId]
@@ -382,6 +399,130 @@ router.get("/:id", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[TRIPS] Failed to get trip:", error);
     return res.status(500).json({ error: "Failed to get trip" });
+  }
+});
+
+router.put(
+  "/:id",
+  async (req: Request<{ id: string }, {}, CreateTripBody>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const { name, description, destination, startDate, endDate } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return res.status(400).json({ error: "name is required" });
+    }
+
+    if (description !== undefined && typeof description !== "string") {
+      return res.status(400).json({ error: "description must be a string" });
+    }
+
+    if (destination !== undefined && typeof destination !== "string") {
+      return res.status(400).json({ error: "destination must be a string" });
+    }
+
+    if (startDate !== undefined && typeof startDate !== "string") {
+      return res.status(400).json({ error: "startDate must be a string" });
+    }
+
+    if (endDate !== undefined && typeof endDate !== "string") {
+      return res.status(400).json({ error: "endDate must be a string" });
+    }
+
+    try {
+      const ownerId = await getTripOwnerId(tripId);
+
+      if (ownerId === null) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+
+      if (ownerId !== req.user.id) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const result = await pool.query<TripRow>(
+        `
+          UPDATE trips
+          SET name = $1, description = $2, destination = $3, start_date = $4, end_date = $5
+          WHERE id = $6
+          RETURNING id, name, description, destination, start_date, end_date, created_by, created_at
+        `,
+        [
+          name.trim(),
+          description?.trim() || null,
+          destination?.trim() || null,
+          startDate || null,
+          endDate || null,
+          tripId,
+        ]
+      );
+
+      return res.status(200).json(mapTrip(result.rows[0]));
+    } catch (error) {
+      const dbError = error as DatabaseError;
+
+      if (dbError.code === "22007") {
+        return res.status(400).json({ error: "startDate and endDate must be valid dates" });
+      }
+
+      console.error("[TRIPS] Failed to update trip:", error);
+      return res.status(500).json({ error: "Failed to update trip" });
+    }
+  }
+);
+
+router.delete("/:id", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const tripResult = await client.query<{ created_by: number }>(
+      "SELECT created_by FROM trips WHERE id = $1 FOR UPDATE",
+      [tripId]
+    );
+    const ownerId = tripResult.rows[0]?.created_by;
+
+    if (ownerId === undefined) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    if (ownerId !== req.user.id) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await client.query("DELETE FROM trip_invites WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM expenses WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM itinerary_items WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM trip_participants WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM trips WHERE id = $1", [tripId]);
+    await client.query("COMMIT");
+
+    return res.status(204).send();
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("[TRIPS] Failed to delete trip:", error);
+    return res.status(500).json({ error: "Failed to delete trip" });
+  } finally {
+    client.release();
   }
 });
 
@@ -786,7 +927,7 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { name, description, startDate, endDate } = req.body;
+  const { name, description, destination, startDate, endDate } = req.body;
 
   if (typeof name !== "string" || name.trim().length === 0) {
     return res.status(400).json({ error: "name is required" });
@@ -794,6 +935,10 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
 
   if (description !== undefined && typeof description !== "string") {
     return res.status(400).json({ error: "description must be a string" });
+  }
+
+  if (destination !== undefined && typeof destination !== "string") {
+    return res.status(400).json({ error: "destination must be a string" });
   }
 
   if (startDate !== undefined && typeof startDate !== "string") {
@@ -807,11 +952,18 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
   try {
     const result = await pool.query<TripRow>(
       `
-        INSERT INTO trips (name, description, start_date, end_date, created_by)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, description, start_date, end_date, created_by, created_at
+        INSERT INTO trips (name, description, destination, start_date, end_date, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, name, description, destination, start_date, end_date, created_by, created_at
       `,
-      [name.trim(), description ?? null, startDate ?? null, endDate ?? null, req.user.id]
+      [
+        name.trim(),
+        description?.trim() || null,
+        destination?.trim() || null,
+        startDate || null,
+        endDate || null,
+        req.user.id,
+      ]
     );
 
     await pool.query(

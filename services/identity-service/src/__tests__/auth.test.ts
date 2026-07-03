@@ -1,3 +1,4 @@
+import jwt from "jsonwebtoken";
 import request from "supertest";
 import app from "../app";
 import pool, { initDb } from "../db";
@@ -77,6 +78,28 @@ describe("identity-service auth endpoints", () => {
     expect(response.status).toBe(200);
     expect(response.body.name).toBe(name);
     expect(response.body.email).toBe(email);
+  });
+
+  it("gets the current profile for a legacy token without a name claim", async () => {
+    const loginResponse = await request(app)
+      .post("/login")
+      .send({ email, password });
+    const legacyToken = jwt.sign(
+      {
+        id: loginResponse.body.user.id,
+        email,
+        role: "user",
+      },
+      process.env.IDENTITY_JWT_SECRET ?? "test_identity_secret"
+    );
+    const response = await request(app)
+      .get("/me")
+      .set("Authorization", `Bearer ${legacyToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({ name, email })
+    );
   });
 
   it("gets users by id with a valid token", async () => {

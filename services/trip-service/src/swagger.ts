@@ -35,6 +35,7 @@ const swaggerSpec = swaggerJsdoc({
             id: { type: "number", example: 1 },
             name: { type: "string", example: "Paris" },
             description: { type: "string", nullable: true, example: "Spring city break" },
+            destination: { type: "string", nullable: true, example: "Paris, France" },
             startDate: { type: "string", nullable: true, example: "2026-06-01" },
             endDate: { type: "string", nullable: true, example: "2026-06-07" },
             createdBy: { type: "number", example: 1 },
@@ -63,8 +64,20 @@ const swaggerSpec = swaggerJsdoc({
           properties: {
             name: { type: "string", example: "Paris" },
             description: { type: "string", example: "Spring city break" },
+            destination: { type: "string", example: "Paris, France" },
             startDate: { type: "string", example: "2026-06-01" },
             endDate: { type: "string", example: "2026-06-07" },
+          },
+        },
+        UpdateTripRequest: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", example: "Paris" },
+            description: { type: "string", nullable: true, example: "Spring city break" },
+            destination: { type: "string", nullable: true, example: "Paris, France" },
+            startDate: { type: "string", nullable: true, example: "2026-06-01" },
+            endDate: { type: "string", nullable: true, example: "2026-06-07" },
           },
         },
         TripSummary: {
@@ -236,6 +249,47 @@ const swaggerSpec = swaggerJsdoc({
             "400": { description: "Invalid trip id" },
             ...authResponses,
             ...notFoundResponse,
+          },
+        },
+        put: {
+          summary: "Update a trip",
+          description: "Only the trip creator can update a trip.",
+          tags: ["Trips"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateTripRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Updated trip",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Trip" },
+                },
+              },
+            },
+            "400": { description: "Invalid request" },
+            "401": { description: "Unauthorized" },
+            "403": { description: "Authenticated user is not the trip owner" },
+            "404": { description: "Trip not found" },
+          },
+        },
+        delete: {
+          summary: "Delete a trip",
+          description: "Only the trip creator can delete a trip and its related data.",
+          tags: ["Trips"],
+          parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "number" } }],
+          responses: {
+            "204": { description: "Trip deleted" },
+            "400": { description: "Invalid trip id" },
+            "401": { description: "Unauthorized" },
+            "403": { description: "Authenticated user is not the trip owner" },
+            "404": { description: "Trip not found" },
           },
         },
       },

@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type { Trip } from "./types/trip";
 
 type MockResponseBody = Record<string, unknown> | Array<Record<string, unknown>>;
 
@@ -49,6 +50,7 @@ const trip = {
   id: 1,
   name: "Paris",
   description: "Museum weekend",
+  destination: "Paris, France",
   startDate: "2026-06-01",
   endDate: "2026-06-05",
   createdBy: 7,
@@ -59,6 +61,7 @@ const sharedTrip = {
   id: 2,
   name: "Lisbon",
   description: "Shared coast plan",
+  destination: "Lisbon, Portugal",
   startDate: "2026-07-10",
   endDate: "2026-07-14",
   createdBy: 11,
@@ -97,6 +100,43 @@ function mockDefaultApi() {
 
     return mockResponse({});
   });
+}
+
+function mockTripDetailsRead(url: string, selectedTrip: Trip = trip) {
+  if (url.endsWith(`/trips/${selectedTrip.id}/summary`)) {
+    return mockResponse({
+      itineraryCount: 0,
+      expenseCount: 0,
+      totalExpenses: 0,
+      tripDurationDays: 4,
+    });
+  }
+
+  if (url.endsWith(`/trips/${selectedTrip.id}/participants`)) {
+    return mockResponse(selectedTrip.participants ?? []);
+  }
+
+  if (url.endsWith(`/trips/${selectedTrip.id}/invites`)) {
+    return mockResponse([]);
+  }
+
+  if (
+    url.endsWith(`/trips/${selectedTrip.id}/itinerary`) ||
+    url.endsWith(`/trips/${selectedTrip.id}/expenses`)
+  ) {
+    return mockResponse([]);
+  }
+
+  if (url.endsWith(`/trips/${selectedTrip.id}`)) {
+    return mockResponse(selectedTrip);
+  }
+
+  return null;
+}
+
+function setAuthenticatedSession() {
+  localStorage.setItem("token", "test-token");
+  localStorage.setItem("user", JSON.stringify(authUser));
 }
 
 beforeEach(() => {
@@ -175,6 +215,46 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByText("Ana Traveler")).toBeInTheDocument();
   });
 
+  it("restores a missing user from /auth/me for a legacy token session", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("token", "legacy-token");
+    mockFetch((url) => {
+      if (url.endsWith("/auth/me")) {
+        return mockResponse(authUser);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Ana Traveler")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    expect(await screen.findByRole("button", { name: /edit trip/i })).toBeInTheDocument();
+  });
+
+  it("logs out when restoring a legacy token session fails", async () => {
+    localStorage.setItem("token", "invalid-legacy-token");
+    mockFetch((url) => {
+      if (url.endsWith("/auth/me")) {
+        return mockResponse({ message: "Unauthorized" }, 401);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(localStorage.getItem("token")).toBeNull();
+    expect(localStorage.getItem("user")).toBeNull();
+  });
+
   it("shows error on failed login", async () => {
     const user = userEvent.setup();
     mockFetch((url) => {
@@ -194,7 +274,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("fetches and displays trips when token exists", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -210,7 +290,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("displays participants on dashboard trip cards", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -228,7 +308,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("renders shared trips in the dashboard", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([sharedTrip]);
@@ -245,9 +325,155 @@ describe("TripBuddy frontend", () => {
     expect(within(sharedTripCard).getByText(/Ana Traveler.*viewer/)).toBeInTheDocument();
   });
 
+  it("allows an owner to edit a trip and shows updated data", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    let activeTrip = trip;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/1") && init?.method === "PUT") {
+        activeTrip = {
+          ...trip,
+          name: "Rome Adventure",
+          description: "Updated plan",
+          destination: "Rome, Italy",
+        };
+        return mockResponse(activeTrip);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([activeTrip]);
+      }
+
+      return mockTripDetailsRead(url, activeTrip) ?? mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /edit trip/i }));
+    const editPanel = screen.getByRole("heading", { name: "Edit trip" }).closest("section") as HTMLElement;
+    await user.clear(within(editPanel).getByLabelText(/trip name/i));
+    await user.type(within(editPanel).getByLabelText(/trip name/i), "Rome Adventure");
+    await user.clear(within(editPanel).getByLabelText(/^description$/i));
+    await user.type(within(editPanel).getByLabelText(/^description$/i), "Updated plan");
+    await user.clear(within(editPanel).getByLabelText(/^destination$/i));
+    await user.type(within(editPanel).getByLabelText(/^destination$/i), "Rome, Italy");
+    await user.click(within(editPanel).getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/trips/1"),
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringContaining('"name":"Rome Adventure"'),
+        })
+      )
+    );
+    expect((await screen.findAllByText("Rome Adventure")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Rome, Italy")).toBeInTheDocument();
+  });
+
+  it("allows an owner to delete a trip and removes it from the dashboard", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let deleted = false;
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/1") && init?.method === "DELETE") {
+        deleted = true;
+        return mockResponse({}, 204);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse(deleted ? [] : [trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /delete trip/i }));
+
+    expect(await screen.findByRole("heading", { name: /your trips/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Paris")).not.toBeInTheDocument());
+  });
+
+  it("does not show trip management controls to a participant", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([sharedTrip]);
+      }
+
+      return mockTripDetailsRead(url, sharedTrip) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /lisbon/i }));
+    await screen.findByText("Trip summary");
+
+    expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete trip/i })).not.toBeInTheDocument();
+  });
+
+  it("shows an error when an owner update fails", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/1") && init?.method === "PUT") {
+        return mockResponse({ error: "Unable to update this trip" }, 500);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /edit trip/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(await screen.findByText("Unable to update this trip")).toBeInTheDocument();
+  });
+
+  it("shows an error when an owner delete fails", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/1") && init?.method === "DELETE") {
+        return mockResponse({ error: "Unable to delete this trip" }, 500);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /delete trip/i }));
+
+    expect(await screen.findByText("Unable to delete this trip")).toBeInTheDocument();
+  });
+
   it("creates a trip and adds it to the list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url, init) => {
       if (url.endsWith("/trips") && init?.method === "POST") {
         return mockResponse(trip, 201);
@@ -270,7 +496,7 @@ describe("TripBuddy frontend", () => {
 
   it("logs out and removes token", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([]);
@@ -288,7 +514,7 @@ describe("TripBuddy frontend", () => {
 
   it("opens trip details and returns to trips list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -331,7 +557,7 @@ describe("TripBuddy frontend", () => {
 
   it("loads participants section in trip details", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -383,7 +609,7 @@ describe("TripBuddy frontend", () => {
 
   it("renders trip invites in trip details", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -426,7 +652,7 @@ describe("TripBuddy frontend", () => {
 
   it("submits invite form and refreshes invite list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
@@ -490,7 +716,7 @@ describe("TripBuddy frontend", () => {
 
   it("adds a participant and refreshes participants list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
@@ -554,7 +780,7 @@ describe("TripBuddy frontend", () => {
 
   it("shows duplicate participant error", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url, init) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -599,7 +825,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("shows success when accepting an invite", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     window.history.pushState({}, "", "/invites/invite-token-123/accept");
     mockFetch((url, init) => {
       if (url.endsWith("/trips/invites/invite-token-123/accept") && init?.method === "POST") {
@@ -617,7 +843,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("shows an error for an invalid invite", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     window.history.pushState({}, "", "/invites/bad-token/accept");
     mockFetch((url, init) => {
       if (url.endsWith("/trips/invites/bad-token/accept") && init?.method === "POST") {
@@ -633,7 +859,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("shows an error for an already accepted invite", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     window.history.pushState({}, "", "/invites/used-token/accept");
     mockFetch((url, init) => {
       if (url.endsWith("/trips/invites/used-token/accept") && init?.method === "POST") {

@@ -88,12 +88,14 @@ describe("trip-service endpoints", () => {
       .send({
         name: "Test Trip",
         description: "A test trip",
+        destination: "Paris",
         startDate: "2026-06-01",
         endDate: "2026-06-05",
       });
 
     expect(response.status).toBe(201);
     expect(response.body.name).toBe("Test Trip");
+    expect(response.body.destination).toBe("Paris");
     tripId = response.body.id;
   });
 
@@ -271,13 +273,48 @@ describe("trip-service endpoints", () => {
     const updateResponse = await request(app)
       .put(`/trips/${tripId}`)
       .set("Authorization", `Bearer ${participantToken}`)
-      .send({ name: "Updated Trip" });
+      .send({ name: "Participant Update" });
     const deleteResponse = await request(app)
       .delete(`/trips/${tripId}`)
       .set("Authorization", `Bearer ${participantToken}`);
 
-    expect(updateResponse.status).toBe(404);
-    expect(deleteResponse.status).toBe(404);
+    expect(updateResponse.status).toBe(403);
+    expect(updateResponse.body.error).toBe("Forbidden");
+    expect(deleteResponse.status).toBe(403);
+    expect(deleteResponse.body.error).toBe("Forbidden");
+  });
+
+  it("does not allow a non-participant to update or delete a trip", async () => {
+    const updateResponse = await request(app)
+      .put(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`)
+      .send({ name: "Outsider Update" });
+    const deleteResponse = await request(app)
+      .delete(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(updateResponse.status).toBe(403);
+    expect(deleteResponse.status).toBe(403);
+  });
+
+  it("rejects an invalid trip update payload", async () => {
+    const response = await request(app)
+      .put(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "   " });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("name is required");
+  });
+
+  it("rejects unauthenticated trip updates and deletes", async () => {
+    const updateResponse = await request(app)
+      .put(`/trips/${tripId}`)
+      .send({ name: "Unauthorized Update" });
+    const deleteResponse = await request(app).delete(`/trips/${tripId}`);
+
+    expect(updateResponse.status).toBe(401);
+    expect(deleteResponse.status).toBe(401);
   });
 
   it("does not allow unauthenticated users to access participant endpoints", async () => {
@@ -574,5 +611,63 @@ describe("trip-service endpoints", () => {
         tripDurationDays: 4,
       })
     );
+  });
+
+  it("allows the owner to update a trip", async () => {
+    const response = await request(app)
+      .put(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Updated Test Trip",
+        description: "Updated description",
+        destination: "Rome",
+        startDate: "2026-07-01",
+        endDate: "2026-07-08",
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        id: tripId,
+        name: "Updated Test Trip",
+        description: "Updated description",
+        destination: "Rome",
+      })
+    );
+  });
+
+  it("allows the owner to delete a trip and removes related data", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(204);
+
+    const listResponse = await request(app)
+      .get("/trips")
+      .set("Authorization", `Bearer ${token}`);
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.body).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: tripId })])
+    );
+
+    const relatedCounts = await Promise.all([
+      pool.query("SELECT COUNT(*) FROM trip_participants WHERE trip_id = $1", [tripId]),
+      pool.query("SELECT COUNT(*) FROM trip_invites WHERE trip_id = $1", [tripId]),
+      pool.query("SELECT COUNT(*) FROM itinerary_items WHERE trip_id = $1", [tripId]),
+      pool.query("SELECT COUNT(*) FROM expenses WHERE trip_id = $1", [tripId]),
+    ]);
+    expect(relatedCounts.every((result) => Number(result.rows[0].count) === 0)).toBe(true);
+
+    const updateDeletedResponse = await request(app)
+      .put(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Deleted trip" });
+    const deleteDeletedResponse = await request(app)
+      .delete(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(updateDeletedResponse.status).toBe(404);
+    expect(deleteDeletedResponse.status).toBe(404);
   });
 });
