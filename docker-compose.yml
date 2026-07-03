@@ -65,6 +65,7 @@ services:
       TRIP_DB_USER: postgres
       TRIP_DB_PASSWORD: postgres
       TRIP_JWT_SECRET: tripbuddy_identity_secret
+      IDENTITY_SERVICE_URL: http://identity-service:4001
     volumes:
       - ./services/trip-service:/app
       - /app/node_modules

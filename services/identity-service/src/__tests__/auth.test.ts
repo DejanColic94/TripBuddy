@@ -4,6 +4,7 @@ import pool, { initDb } from "../db";
 
 const email = `test-${Date.now()}@example.com`;
 const password = "password123";
+const name = "Test Traveler";
 
 beforeAll(async () => {
   process.env.IDENTITY_JWT_SECRET ??= "test_identity_secret";
@@ -21,16 +22,26 @@ describe("identity-service auth endpoints", () => {
   it("registers a user", async () => {
     const response = await request(app)
       .post("/register")
-      .send({ email, password });
+      .send({ name, email, password });
 
     expect(response.status).toBe(201);
+    expect(response.body.user.name).toBe(name);
     expect(response.body.user.email).toBe(email);
+  });
+
+  it("rejects register without a name", async () => {
+    const response = await request(app)
+      .post("/register")
+      .send({ email: `missing-name-${Date.now()}@example.com`, password });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Name is required");
   });
 
   it("prevents duplicate register", async () => {
     const response = await request(app)
       .post("/register")
-      .send({ email, password });
+      .send({ name, email, password });
 
     expect(response.status).toBe(409);
     expect(response.body.message).toBe("Email already exists");
@@ -43,6 +54,9 @@ describe("identity-service auth endpoints", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.token).toEqual(expect.any(String));
+    expect(response.body.user).toEqual(
+      expect.objectContaining({ name, email })
+    );
     token = response.body.token;
   });
 
@@ -61,7 +75,22 @@ describe("identity-service auth endpoints", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(200);
+    expect(response.body.name).toBe(name);
     expect(response.body.email).toBe(email);
+  });
+
+  it("gets users by id with a valid token", async () => {
+    const meResponse = await request(app)
+      .get("/me")
+      .set("Authorization", `Bearer ${token}`);
+    const response = await request(app)
+      .get(`/users?ids=${meResponse.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name })])
+    );
   });
 
   it("rejects /me without token", async () => {

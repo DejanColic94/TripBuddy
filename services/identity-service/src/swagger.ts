@@ -21,10 +21,19 @@ const swaggerSpec = swaggerJsdoc({
         },
       },
       schemas: {
-        AuthRequest: {
+        LoginRequest: {
           type: "object",
           required: ["email", "password"],
           properties: {
+            email: { type: "string", example: "user@example.com" },
+            password: { type: "string", example: "password123" },
+          },
+        },
+        RegisterRequest: {
+          type: "object",
+          required: ["name", "email", "password"],
+          properties: {
+            name: { type: "string", example: "Ana Petrovic" },
             email: { type: "string", example: "user@example.com" },
             password: { type: "string", example: "password123" },
           },
@@ -33,8 +42,16 @@ const swaggerSpec = swaggerJsdoc({
           type: "object",
           properties: {
             id: { type: "number", example: 1 },
+            name: { type: "string", example: "Ana Petrovic" },
             email: { type: "string", example: "user@example.com" },
             role: { type: "string", example: "user" },
+          },
+        },
+        UserSummary: {
+          type: "object",
+          properties: {
+            id: { type: "number", example: 1 },
+            name: { type: "string", example: "Ana Petrovic" },
           },
         },
         Message: {
@@ -54,7 +71,7 @@ const swaggerSpec = swaggerJsdoc({
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/AuthRequest" },
+                schema: { $ref: "#/components/schemas/RegisterRequest" },
               },
             },
           },
@@ -87,7 +104,7 @@ const swaggerSpec = swaggerJsdoc({
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/AuthRequest" },
+                schema: { $ref: "#/components/schemas/LoginRequest" },
               },
             },
           },
@@ -123,6 +140,35 @@ const swaggerSpec = swaggerJsdoc({
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/User" },
+                },
+              },
+            },
+            "401": { description: "Unauthorized" },
+          },
+        },
+      },
+      "/users": {
+        get: {
+          summary: "Get users by id",
+          tags: ["Users"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "ids",
+              in: "query",
+              required: true,
+              schema: { type: "string", example: "1,2,3" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Matching users",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/UserSummary" },
+                  },
                 },
               },
             },

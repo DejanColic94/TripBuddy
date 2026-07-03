@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { API_BASE_URL } from "../config/api";
+import type { AuthUser } from "../types/auth";
 
 type LoginPageProps = {
-  onLogin: (token: string) => void;
+  onLogin: (token: string, user: AuthUser) => void;
 };
 
 type LoginResponse = {
   token?: string;
+  user?: AuthUser;
   message?: string;
 };
 
@@ -32,12 +34,12 @@ function LoginPage({ onLogin }: LoginPageProps) {
 
       const data = (await response.json()) as LoginResponse;
 
-      if (!response.ok || !data.token) {
+      if (!response.ok || !data.token || !data.user) {
         setError(data.message ?? "Login failed");
         return;
       }
 
-      onLogin(data.token);
+      onLogin(data.token, data.user);
     } catch {
       setError("Login failed");
     } finally {

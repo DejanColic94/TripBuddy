@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "crypto";
 import type { DatabaseError } from "pg";
+import { getUserNames } from "../clients/identityClient";
 import pool from "../db";
 import authMiddleware from "../middleware/auth";
 
@@ -17,6 +18,7 @@ type TripRow = {
 type TripParticipantSummary = {
   userId: number;
   role: string;
+  name?: string;
 };
 
 type TripWithParticipantsRow = TripRow & {
@@ -129,14 +131,30 @@ function mapItineraryItem(item: ItineraryItemRow) {
   };
 }
 
-function mapTripParticipant(participant: TripParticipantRow) {
+function mapTripParticipant(participant: TripParticipantRow, name?: string) {
   return {
     id: participant.id,
     tripId: participant.trip_id,
     userId: participant.user_id,
+    name,
     role: participant.role,
     createdAt: participant.created_at,
   };
+}
+
+async function addParticipantNames<T extends TripParticipantSummary>(
+  participants: T[],
+  authorization?: string
+) {
+  const names = await getUserNames(
+    participants.map((participant) => participant.userId),
+    authorization
+  );
+
+  return participants.map((participant) => ({
+    ...participant,
+    name: names.get(participant.userId),
+  }));
 }
 
 function mapTripInvite(invite: TripInviteRow) {
@@ -232,8 +250,23 @@ router.get("/", async (req: Request, res: Response) => {
       [req.user.id]
     );
 
+    const participantNames = await getUserNames(
+      result.rows.flatMap((trip) =>
+        trip.participants.map((participant) => participant.userId)
+      ),
+      req.headers.authorization
+    );
+
     return res.status(200).json(
-      result.rows.map((trip) => mapTrip(trip, trip.participants))
+      result.rows.map((trip) =>
+        mapTrip(
+          trip,
+          trip.participants.map((participant) => ({
+            ...participant,
+            name: participantNames.get(participant.userId),
+          }))
+        )
+      )
     );
   } catch (error) {
     console.error("[TRIPS] Failed to get trips:", error);
@@ -340,7 +373,12 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const trip = result.rows[0];
 
-    return res.status(200).json(mapTrip(trip, trip.participants));
+    const participants = await addParticipantNames(
+      trip.participants,
+      req.headers.authorization
+    );
+
+    return res.status(200).json(mapTrip(trip, participants));
   } catch (error) {
     console.error("[TRIPS] Failed to get trip:", error);
     return res.status(500).json({ error: "Failed to get trip" });
@@ -450,7 +488,15 @@ router.get("/:id/participants", async (req: Request, res: Response) => {
       [tripId]
     );
 
-    return res.status(200).json(result.rows.map(mapTripParticipant));
+    const participants = result.rows.map((participant) =>
+      mapTripParticipant(participant)
+    );
+    const namedParticipants = await addParticipantNames(
+      participants,
+      req.headers.authorization
+    );
+
+    return res.status(200).json(namedParticipants);
   } catch (error) {
     console.error("[TRIPS] Failed to get trip participants:", error);
     return res.status(500).json({ error: "Failed to get trip participants" });
@@ -493,7 +539,11 @@ router.post(
         [tripId, userId, role ?? "viewer"]
       );
 
-      return res.status(201).json(mapTripParticipant(result.rows[0]));
+      const names = await getUserNames([userId], req.headers.authorization);
+
+      return res.status(201).json(
+        mapTripParticipant(result.rows[0], names.get(userId))
+      );
     } catch (error) {
       const dbError = error as DatabaseError;
 
