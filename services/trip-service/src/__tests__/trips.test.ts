@@ -11,14 +11,35 @@ jest.mock("../services/emailService", () => ({
 const userId = 987654;
 const participantUserId = 987655;
 const nonOwnerUserId = 987656;
+const invitedCreatedUserId = 987657;
+const raceRecoveredUserId = 987661;
+const ownerEmail = "owner@example.com";
+const participantEmail = "participant@example.com";
+const invitedEmail = "invited@example.com";
 const userNames = new Map([
   [userId, "Owner Traveler"],
   [participantUserId, "Shared Traveler"],
   [nonOwnerUserId, "Invited Traveler"],
+  [invitedCreatedUserId, "Created Invitee"],
+]);
+const identityUsersByEmail = new Map([
+  [
+    invitedEmail,
+    { id: nonOwnerUserId, name: "Invited Traveler", email: invitedEmail, role: "user" },
+  ],
+  [
+    participantEmail,
+    { id: participantUserId, name: "Shared Traveler", email: participantEmail, role: "user" },
+  ],
 ]);
 const sendInvitationEmailMock = sendInvitationEmail as jest.MockedFunction<
   typeof sendInvitationEmail
 >;
+let identityLookupEmails: string[] = [];
+let identityCreateEmails: string[] = [];
+let failIdentityLookup = false;
+let failIdentityCreate = false;
+const raceRecoveredEmail = "race-recovered@example.com";
 
 async function cleanupTestData() {
   await pool.query(
@@ -45,18 +66,123 @@ async function cleanupTestData() {
 
 beforeAll(async () => {
   process.env.TRIP_JWT_SECRET ??= "test_identity_secret";
-  jest.spyOn(global, "fetch").mockImplementation(async (input) => {
+  process.env.IDENTITY_SERVICE_URL ??= "http://identity-service:4001";
+  process.env.INTERNAL_SERVICE_SECRET ??= "internal-test-secret";
+  jest.spyOn(global, "fetch").mockImplementation(async (input, init) => {
     const url = new URL(input.toString());
-    const ids = (url.searchParams.get("ids") ?? "")
-      .split(",")
-      .map(Number);
+
+    if (url.pathname === "/users") {
+      const ids = (url.searchParams.get("ids") ?? "")
+        .split(",")
+        .map(Number);
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          ids
+            .filter((id) => userNames.has(id))
+            .map((id) => ({ id, name: userNames.get(id) })),
+      } as Response;
+    }
+
+    if (url.pathname === "/internal/users/by-email") {
+      if (
+        (init?.headers as Record<string, string>)?.["X-Internal-Service-Secret"] !==
+        process.env.INTERNAL_SERVICE_SECRET
+      ) {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ error: "Unauthorized" }),
+        } as Response;
+      }
+
+      const email = url.searchParams.get("email") ?? "";
+      identityLookupEmails.push(email);
+
+      if (failIdentityLookup) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: "Failed" }),
+        } as Response;
+      }
+
+      if (email === raceRecoveredEmail) {
+        const lookupCount = identityLookupEmails.filter(
+          (lookupEmail) => lookupEmail === raceRecoveredEmail
+        ).length;
+
+        if (lookupCount > 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              id: raceRecoveredUserId,
+              name: "Race Recovered",
+              email: raceRecoveredEmail,
+              role: "user",
+            }),
+          } as Response;
+        }
+      }
+
+      const user = identityUsersByEmail.get(email);
+
+      return user
+        ? ({
+            ok: true,
+            status: 200,
+            json: async () => user,
+          } as Response)
+        : ({
+            ok: false,
+            status: 404,
+            json: async () => ({ error: "User not found" }),
+          } as Response);
+    }
+
+    if (url.pathname === "/internal/users/invited") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { email?: string };
+      const email = body.email ?? "";
+      identityCreateEmails.push(email);
+
+      if (failIdentityCreate) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: "Failed" }),
+        } as Response;
+      }
+
+      if (email === raceRecoveredEmail) {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ error: "User already exists" }),
+        } as Response;
+      }
+
+      const user = {
+        id: invitedCreatedUserId,
+        name: "Created Invitee",
+        email,
+        role: "user",
+      };
+      identityUsersByEmail.set(email, user);
+
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ user }),
+      } as Response;
+    }
 
     return {
-      ok: true,
-      json: async () =>
-        ids
-          .filter((id) => userNames.has(id))
-          .map((id) => ({ id, name: userNames.get(id) })),
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "Not found" }),
     } as Response;
   });
   await initDb();
@@ -66,6 +192,12 @@ beforeAll(async () => {
 beforeEach(() => {
   sendInvitationEmailMock.mockReset();
   sendInvitationEmailMock.mockResolvedValue();
+  identityLookupEmails = [];
+  identityCreateEmails = [];
+  failIdentityLookup = false;
+  failIdentityCreate = false;
+  identityUsersByEmail.delete("new-invitee@example.com");
+  identityUsersByEmail.delete("create-failure@example.com");
 });
 
 afterAll(async () => {
@@ -76,15 +208,19 @@ afterAll(async () => {
 
 describe("trip-service endpoints", () => {
   const token = jwt.sign(
-    { id: userId, name: "Owner Traveler" },
+    { id: userId, name: "Owner Traveler", email: ownerEmail },
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
   );
   const nonOwnerToken = jwt.sign(
-    { id: nonOwnerUserId },
+    { id: nonOwnerUserId, name: "Invited Traveler", email: invitedEmail },
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
   );
   const participantToken = jwt.sign(
-    { id: participantUserId },
+    { id: participantUserId, name: "Shared Traveler", email: participantEmail },
+    process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
+  );
+  const tokenWithoutEmail = jwt.sign(
+    { id: nonOwnerUserId, name: "Invited Traveler" },
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
   );
   let tripId = 0;
@@ -450,6 +586,54 @@ describe("trip-service endpoints", () => {
     );
   });
 
+  it("allows unauthenticated invite acceptance route access but requires login for an existing invited account", async () => {
+    const response = await request(app).post(`/trips/invites/${inviteToken}/accept`);
+    const inviteState = await pool.query<{ accepted_at: string | null }>(
+      "SELECT accepted_at FROM trip_invites WHERE token = $1",
+      [inviteToken]
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: "Login required for invited email" });
+    expect(identityLookupEmails).toEqual([invitedEmail]);
+    expect(identityCreateEmails).toEqual([]);
+    expect(inviteState.rows[0].accepted_at).toBeNull();
+  });
+
+  it("returns 401 for malformed or invalid supplied Bearer tokens on invite acceptance", async () => {
+    const response = await request(app)
+      .post(`/trips/invites/${inviteToken}/accept`)
+      .set("Authorization", "Bearer not-a-real-token");
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
+  it("returns 403 when authenticated JWT has no email for invite acceptance", async () => {
+    const response = await request(app)
+      .post(`/trips/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${tokenWithoutEmail}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Authenticated account email is unavailable");
+  });
+
+  it("returns 403 when authenticated email does not match invite email", async () => {
+    const response = await request(app)
+      .post(`/trips/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${participantToken}`);
+    const inviteState = await pool.query<{ accepted_at: string | null }>(
+      "SELECT accepted_at FROM trip_invites WHERE token = $1",
+      [inviteToken]
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Invite belongs to a different email");
+    expect(inviteState.rows[0].accepted_at).toBeNull();
+    expect(identityLookupEmails).toEqual([]);
+    expect(identityCreateEmails).toEqual([]);
+  });
+
   it("accepting an invite adds a participant", async () => {
     const acceptResponse = await request(app)
       .post(`/trips/invites/${inviteToken}/accept`)
@@ -457,6 +641,9 @@ describe("trip-service endpoints", () => {
 
     expect(acceptResponse.status).toBe(200);
     expect(acceptResponse.body.acceptedAt).toEqual(expect.any(String));
+    expect(acceptResponse.body.accountCreated).toBe(false);
+    expect(identityLookupEmails).toEqual([]);
+    expect(identityCreateEmails).toEqual([]);
 
     const participantsResponse = await request(app)
       .get(`/trips/${tripId}/participants`)
@@ -472,6 +659,149 @@ describe("trip-service endpoints", () => {
         }),
       ])
     );
+  });
+
+  it("matches authenticated invite email case-insensitively after trimming", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "casey@example.com",
+        role: "viewer",
+      });
+    const caseToken = jwt.sign(
+      { id: 987660, name: "Case Traveler", email: "  CASEY@EXAMPLE.COM  " },
+      process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
+    );
+
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .set("Authorization", `Bearer ${caseToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.accountCreated).toBe(false);
+  });
+
+  it("creates an invited Identity user for unauthenticated new accounts", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "New-Invitee@Example.com",
+        role: "viewer",
+      });
+
+    const response = await request(app).post(
+      `/trips/invites/${inviteResponse.body.token}/accept`
+    );
+    const participantResult = await pool.query(
+      "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
+      [tripId, invitedCreatedUserId]
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.accountCreated).toBe(true);
+    expect(response.body).not.toHaveProperty("user");
+    expect(JSON.stringify(response.body)).not.toContain("Created Invitee");
+    expect(identityLookupEmails).toEqual(["new-invitee@example.com"]);
+    expect(identityCreateEmails).toEqual(["new-invitee@example.com"]);
+    expect(participantResult.rowCount).toBe(1);
+  });
+
+  it("returns login required and rolls back when invited-user creation recovers an existing account race", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: raceRecoveredEmail,
+        role: "viewer",
+      });
+
+    const response = await request(app).post(
+      `/trips/invites/${inviteResponse.body.token}/accept`
+    );
+    const participantResult = await pool.query(
+      "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
+      [tripId, raceRecoveredUserId]
+    );
+    const inviteState = await pool.query<{ accepted_at: string | null }>(
+      "SELECT accepted_at FROM trip_invites WHERE token = $1",
+      [inviteResponse.body.token]
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: "Login required for invited email" });
+    expect(response.body).not.toHaveProperty("accountCreated");
+    expect(identityLookupEmails).toEqual([raceRecoveredEmail, raceRecoveredEmail]);
+    expect(identityCreateEmails).toEqual([raceRecoveredEmail]);
+    expect(participantResult.rowCount).toBe(0);
+    expect(inviteState.rows[0].accepted_at).toBeNull();
+  });
+
+  it("returns 502 when Identity lookup fails and leaves invite unaccepted", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "identity-lookup-fail@example.com",
+        role: "viewer",
+      });
+    failIdentityLookup = true;
+
+    const response = await request(app).post(
+      `/trips/invites/${inviteResponse.body.token}/accept`
+    );
+    const inviteState = await pool.query<{ accepted_at: string | null }>(
+      "SELECT accepted_at FROM trip_invites WHERE token = $1",
+      [inviteResponse.body.token]
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.body.error).toBe("Failed to process invited account");
+    expect(inviteState.rows[0].accepted_at).toBeNull();
+  });
+
+  it("returns 502 when Identity invited-user creation fails and leaves invite unaccepted", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "create-failure@example.com",
+        role: "viewer",
+      });
+    failIdentityCreate = true;
+
+    const response = await request(app).post(
+      `/trips/invites/${inviteResponse.body.token}/accept`
+    );
+    const inviteState = await pool.query<{ accepted_at: string | null }>(
+      "SELECT accepted_at FROM trip_invites WHERE token = $1",
+      [inviteResponse.body.token]
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.body.error).toBe("Failed to process invited account");
+    expect(inviteState.rows[0].accepted_at).toBeNull();
+  });
+
+  it("returns 500 when invite acceptance cannot connect to the database", async () => {
+    const connectSpy = jest.spyOn(pool, "connect") as jest.SpyInstance;
+    connectSpy.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const response = await request(app).post(
+      "/trips/invites/connect-failure-token/accept"
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toBe("Failed to accept trip invite");
+    connectSpy.mockRestore();
+  });
+
+  it("returns 400 when invite token is blank", async () => {
+    const response = await request(app).post("/trips/invites/%20/accept");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Invite token is required");
   });
 
   it("accepting an invalid invite token returns 404", async () => {
