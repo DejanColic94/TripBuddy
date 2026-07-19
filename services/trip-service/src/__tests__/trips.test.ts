@@ -1,7 +1,12 @@
 import jwt from "jsonwebtoken";
 import request from "supertest";
+import { sendInvitationEmail } from "../services/emailService";
 import app from "../app";
 import pool, { initDb } from "../db";
+
+jest.mock("../services/emailService", () => ({
+  sendInvitationEmail: jest.fn(),
+}));
 
 const userId = 987654;
 const participantUserId = 987655;
@@ -11,6 +16,9 @@ const userNames = new Map([
   [participantUserId, "Shared Traveler"],
   [nonOwnerUserId, "Invited Traveler"],
 ]);
+const sendInvitationEmailMock = sendInvitationEmail as jest.MockedFunction<
+  typeof sendInvitationEmail
+>;
 
 async function cleanupTestData() {
   await pool.query(
@@ -55,6 +63,11 @@ beforeAll(async () => {
   await cleanupTestData();
 });
 
+beforeEach(() => {
+  sendInvitationEmailMock.mockReset();
+  sendInvitationEmailMock.mockResolvedValue();
+});
+
 afterAll(async () => {
   await cleanupTestData();
   await pool.end();
@@ -62,7 +75,10 @@ afterAll(async () => {
 });
 
 describe("trip-service endpoints", () => {
-  const token = jwt.sign({ id: userId }, process.env.TRIP_JWT_SECRET ?? "test_identity_secret");
+  const token = jwt.sign(
+    { id: userId, name: "Owner Traveler" },
+    process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
+  );
   const nonOwnerToken = jwt.sign(
     { id: nonOwnerUserId },
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
@@ -347,7 +363,59 @@ describe("trip-service endpoints", () => {
     );
     expect(typeof response.body.token).toBe("string");
     expect(response.body.token.length).toBeGreaterThan(20);
+    expect(sendInvitationEmailMock).toHaveBeenCalledWith({
+      recipientEmail: "invited@example.com",
+      inviterName: "Owner Traveler",
+      tripName: "Test Trip",
+      inviteToken: response.body.token,
+    });
     inviteToken = response.body.token;
+  });
+
+  it("returns 502 and rolls back the invite when email sending fails", async () => {
+    const beforeCount = await pool.query(
+      "SELECT COUNT(*) FROM trip_invites WHERE trip_id = $1",
+      [tripId]
+    );
+    sendInvitationEmailMock.mockRejectedValueOnce(new Error("Resend unavailable"));
+
+    const response = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "rollback@example.com",
+        role: "viewer",
+      });
+
+    const afterCount = await pool.query(
+      "SELECT COUNT(*) FROM trip_invites WHERE trip_id = $1",
+      [tripId]
+    );
+    const failedInviteCount = await pool.query(
+      "SELECT COUNT(*) FROM trip_invites WHERE trip_id = $1 AND email = $2",
+      [tripId, "rollback@example.com"]
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.body.error).toBe("Failed to send invitation email");
+    expect(Number(afterCount.rows[0].count)).toBe(
+      Number(beforeCount.rows[0].count)
+    );
+    expect(Number(failedInviteCount.rows[0].count)).toBe(0);
+  });
+
+  it("does not send email for invalid invite requests", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: "",
+        role: "viewer",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("email is required");
+    expect(sendInvitationEmailMock).not.toHaveBeenCalled();
   });
 
   it("does not allow a non-owner to create an invite", async () => {
@@ -361,6 +429,7 @@ describe("trip-service endpoints", () => {
 
     expect(response.status).toBe(404);
     expect(response.body.error).toBe("Trip not found");
+    expect(sendInvitationEmailMock).not.toHaveBeenCalled();
   });
 
   it("allows the owner to list invites", async () => {

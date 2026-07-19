@@ -4,6 +4,7 @@ import type { DatabaseError } from "pg";
 import { getUserNames } from "../clients/identityClient";
 import pool from "../db";
 import authMiddleware from "../middleware/auth";
+import { sendInvitationEmail } from "../services/emailService";
 
 type TripRow = {
   id: number;
@@ -57,6 +58,11 @@ type TripInviteRow = {
   created_at: string;
 };
 
+type OwnedTripInviteRow = {
+  id: number;
+  name: string;
+};
+
 type CreateTripInviteBody = {
   email?: string;
   role?: string;
@@ -104,6 +110,12 @@ type TripSummaryRow = {
 const router = Router();
 
 router.use(authMiddleware);
+
+class InviteEmailDeliveryError extends Error {
+  constructor(public readonly originalError: unknown) {
+    super("Failed to send invitation email");
+  }
+}
 
 function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
   return {
@@ -581,24 +593,73 @@ router.post(
       return res.status(400).json({ error: "role must be viewer" });
     }
 
+    const client = await pool.connect();
+
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
+      await client.query("BEGIN");
+
+      const tripResult = await client.query<OwnedTripInviteRow>(
+        "SELECT id, name FROM trips WHERE id = $1 AND created_by = $2 FOR UPDATE",
+        [tripId, req.user.id]
+      );
+      const trip = tripResult.rows[0];
+
+      if (!trip) {
+        await client.query("ROLLBACK");
         return res.status(404).json({ error: "Trip not found" });
       }
 
-      const result = await pool.query<TripInviteRow>(
+      const inviteToken = generateInviteToken();
+      const normalizedEmail = email.trim().toLowerCase();
+      const inviteRole = role ?? "viewer";
+
+      const result = await client.query<TripInviteRow>(
         `
           INSERT INTO trip_invites (trip_id, email, token, role)
           VALUES ($1, $2, $3, $4)
           RETURNING id, trip_id, email, token, role, accepted_at, created_at
         `,
-        [tripId, email.trim().toLowerCase(), generateInviteToken(), role ?? "viewer"]
+        [tripId, normalizedEmail, inviteToken, inviteRole]
       );
+
+      try {
+        await sendInvitationEmail({
+          recipientEmail: normalizedEmail,
+          inviterName: req.user.name ?? "A TripBuddy user",
+          tripName: trip.name,
+          inviteToken,
+        });
+      } catch (error) {
+        throw new InviteEmailDeliveryError(error);
+      }
+
+      await client.query("COMMIT");
 
       return res.status(201).json(mapTripInvite(result.rows[0]));
     } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error(
+          "[TRIPS] Failed to rollback trip invite transaction:",
+          rollbackError
+        );
+      }
+
+      if (error instanceof InviteEmailDeliveryError) {
+        console.error(
+          "[TRIPS] Failed to send trip invite email:",
+          error.originalError
+        );
+        return res
+          .status(502)
+          .json({ error: "Failed to send invitation email" });
+      }
+
       console.error("[TRIPS] Failed to create trip invite:", error);
       return res.status(500).json({ error: "Failed to create trip invite" });
+    } finally {
+      client.release();
     }
   }
 );
