@@ -1,5 +1,6 @@
 export type TripParticipantSummary = {
   userId: number;
+  name?: string;
   role: string;
 };
 
@@ -7,6 +8,7 @@ export type Trip = {
   id: number;
   name: string;
   description: string | null;
+  destination: string | null;
   startDate: string | null;
   endDate: string | null;
   createdBy: number;

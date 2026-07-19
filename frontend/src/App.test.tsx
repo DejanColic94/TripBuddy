@@ -1,14 +1,24 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type { Trip } from "./types/trip";
 
 type MockResponseBody = Record<string, unknown> | Array<Record<string, unknown>>;
+
+const authUser = {
+  id: 7,
+  name: "Ana Traveler",
+  email: "test@example.com",
+  role: "user",
+};
 
 const ownerParticipant = {
   id: 1,
   tripId: 1,
   userId: 7,
+  name: "Ana Traveler",
   role: "owner",
   createdAt: "2026-06-18T10:00:00.000Z",
 };
@@ -17,6 +27,7 @@ const viewerParticipant = {
   id: 2,
   tripId: 1,
   userId: 8,
+  name: "Milan Traveler",
   role: "viewer",
   createdAt: "2026-06-18T10:05:00.000Z",
 };
@@ -40,6 +51,7 @@ const trip = {
   id: 1,
   name: "Paris",
   description: "Museum weekend",
+  destination: "Paris, France",
   startDate: "2026-06-01",
   endDate: "2026-06-05",
   createdBy: 7,
@@ -50,12 +62,13 @@ const sharedTrip = {
   id: 2,
   name: "Lisbon",
   description: "Shared coast plan",
+  destination: "Lisbon, Portugal",
   startDate: "2026-07-10",
   endDate: "2026-07-14",
   createdBy: 11,
   participants: [
-    { userId: 11, role: "owner" },
-    { userId: 7, role: "viewer" },
+    { userId: 11, name: "Trip Owner", role: "owner" },
+    { userId: 7, name: "Ana Traveler", role: "viewer" },
   ],
 };
 
@@ -79,7 +92,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Respons
 function mockDefaultApi() {
   mockFetch((url, init) => {
     if (url.endsWith("/auth/login") && init?.method === "POST") {
-      return mockResponse({ token: "test-token" });
+      return mockResponse({ token: "test-token", user: authUser });
     }
 
     if (url.endsWith("/trips") && !init?.method) {
@@ -88,6 +101,43 @@ function mockDefaultApi() {
 
     return mockResponse({});
   });
+}
+
+function mockTripDetailsRead(url: string, selectedTrip: Trip = trip) {
+  if (url.endsWith(`/trips/${selectedTrip.id}/summary`)) {
+    return mockResponse({
+      itineraryCount: 0,
+      expenseCount: 0,
+      totalExpenses: 0,
+      tripDurationDays: 4,
+    });
+  }
+
+  if (url.endsWith(`/trips/${selectedTrip.id}/participants`)) {
+    return mockResponse(selectedTrip.participants ?? []);
+  }
+
+  if (url.endsWith(`/trips/${selectedTrip.id}/invites`)) {
+    return mockResponse([]);
+  }
+
+  if (
+    url.endsWith(`/trips/${selectedTrip.id}/itinerary`) ||
+    url.endsWith(`/trips/${selectedTrip.id}/expenses`)
+  ) {
+    return mockResponse([]);
+  }
+
+  if (url.endsWith(`/trips/${selectedTrip.id}`)) {
+    return mockResponse(selectedTrip);
+  }
+
+  return null;
+}
+
+function setAuthenticatedSession() {
+  localStorage.setItem("token", "test-token");
+  localStorage.setItem("user", JSON.stringify(authUser));
 }
 
 beforeEach(() => {
@@ -119,6 +169,38 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByRole("heading", { name: "Register" })).toBeInTheDocument();
   });
 
+  it("registers with a name and returns to login", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/register") && init?.method === "POST") {
+        return mockResponse({ message: "User registered successfully" }, 201);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+    await user.type(screen.getByLabelText(/^name$/i), "Ana Traveler");
+    await user.type(screen.getByLabelText(/email/i), "ana@example.com");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /^register$/i }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/auth/register"),
+        expect.objectContaining({
+          body: JSON.stringify({
+            name: "Ana Traveler",
+            email: "ana@example.com",
+            password: "password123",
+          }),
+        })
+      )
+    );
+    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+  });
+
   it("stores token after successful login", async () => {
     const user = userEvent.setup();
     mockDefaultApi();
@@ -129,7 +211,49 @@ describe("TripBuddy frontend", () => {
     await user.click(screen.getByRole("button", { name: "Login" }));
 
     await waitFor(() => expect(localStorage.getItem("token")).toBe("test-token"));
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
     expect(await screen.findByRole("heading", { name: /your trips/i })).toBeInTheDocument();
+    expect(screen.getByText("Ana Traveler")).toBeInTheDocument();
+  });
+
+  it("restores a missing user from /auth/me for a legacy token session", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("token", "legacy-token");
+    mockFetch((url) => {
+      if (url.endsWith("/auth/me")) {
+        return mockResponse(authUser);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Ana Traveler")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    expect(await screen.findByRole("button", { name: /edit trip/i })).toBeInTheDocument();
+  });
+
+  it("logs out when restoring a legacy token session fails", async () => {
+    localStorage.setItem("token", "invalid-legacy-token");
+    mockFetch((url) => {
+      if (url.endsWith("/auth/me")) {
+        return mockResponse({ message: "Unauthorized" }, 401);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(localStorage.getItem("token")).toBeNull();
+    expect(localStorage.getItem("user")).toBeNull();
   });
 
   it("shows error on failed login", async () => {
@@ -151,7 +275,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("fetches and displays trips when token exists", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -167,7 +291,7 @@ describe("TripBuddy frontend", () => {
   });
 
   it("displays participants on dashboard trip cards", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -181,11 +305,11 @@ describe("TripBuddy frontend", () => {
     const tripCard = (await screen.findByText("Paris")).closest("li") as HTMLElement;
 
     expect(within(tripCard).getByText("Participants")).toBeInTheDocument();
-    expect(within(tripCard).getByText(/User #7.*owner/)).toBeInTheDocument();
+    expect(within(tripCard).getByText(/Ana Traveler.*owner/)).toBeInTheDocument();
   });
 
   it("renders shared trips in the dashboard", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([sharedTrip]);
@@ -199,12 +323,158 @@ describe("TripBuddy frontend", () => {
     const sharedTripCard = (await screen.findByText("Lisbon")).closest("li") as HTMLElement;
 
     expect(within(sharedTripCard).getByText("Shared coast plan")).toBeInTheDocument();
-    expect(within(sharedTripCard).getByText(/User #7.*viewer/)).toBeInTheDocument();
+    expect(within(sharedTripCard).getByText(/Ana Traveler.*viewer/)).toBeInTheDocument();
+  });
+
+  it("allows an owner to edit a trip and shows updated data", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    let activeTrip = trip;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/1") && init?.method === "PUT") {
+        activeTrip = {
+          ...trip,
+          name: "Rome Adventure",
+          description: "Updated plan",
+          destination: "Rome, Italy",
+        };
+        return mockResponse(activeTrip);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([activeTrip]);
+      }
+
+      return mockTripDetailsRead(url, activeTrip) ?? mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /edit trip/i }));
+    const editPanel = screen.getByRole("heading", { name: "Edit trip" }).closest("section") as HTMLElement;
+    await user.clear(within(editPanel).getByLabelText(/trip name/i));
+    await user.type(within(editPanel).getByLabelText(/trip name/i), "Rome Adventure");
+    await user.clear(within(editPanel).getByLabelText(/^description$/i));
+    await user.type(within(editPanel).getByLabelText(/^description$/i), "Updated plan");
+    await user.clear(within(editPanel).getByLabelText(/^destination$/i));
+    await user.type(within(editPanel).getByLabelText(/^destination$/i), "Rome, Italy");
+    await user.click(within(editPanel).getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/trips/1"),
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringContaining('"name":"Rome Adventure"'),
+        })
+      )
+    );
+    expect((await screen.findAllByText("Rome Adventure")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Rome, Italy")).toBeInTheDocument();
+  });
+
+  it("allows an owner to delete a trip and removes it from the dashboard", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let deleted = false;
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/1") && init?.method === "DELETE") {
+        deleted = true;
+        return mockResponse({}, 204);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse(deleted ? [] : [trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /delete trip/i }));
+
+    expect(await screen.findByRole("heading", { name: /your trips/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Paris")).not.toBeInTheDocument());
+  });
+
+  it("does not show trip management controls to a participant", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([sharedTrip]);
+      }
+
+      return mockTripDetailsRead(url, sharedTrip) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /lisbon/i }));
+    await screen.findByText("Trip summary");
+
+    expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete trip/i })).not.toBeInTheDocument();
+  });
+
+  it("shows an error when an owner update fails", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/1") && init?.method === "PUT") {
+        return mockResponse({ error: "Unable to update this trip" }, 500);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /edit trip/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(await screen.findByText("Unable to update this trip")).toBeInTheDocument();
+  });
+
+  it("shows an error when an owner delete fails", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    localStorage.setItem("user", JSON.stringify(authUser));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/1") && init?.method === "DELETE") {
+        return mockResponse({ error: "Unable to delete this trip" }, 500);
+      }
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+    await user.click(await screen.findByRole("button", { name: /delete trip/i }));
+
+    expect(await screen.findByText("Unable to delete this trip")).toBeInTheDocument();
   });
 
   it("creates a trip and adds it to the list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url, init) => {
       if (url.endsWith("/trips") && init?.method === "POST") {
         return mockResponse(trip, 201);
@@ -227,7 +497,7 @@ describe("TripBuddy frontend", () => {
 
   it("logs out and removes token", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([]);
@@ -245,7 +515,7 @@ describe("TripBuddy frontend", () => {
 
   it("opens trip details and returns to trips list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -288,7 +558,7 @@ describe("TripBuddy frontend", () => {
 
   it("loads participants section in trip details", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -332,15 +602,15 @@ describe("TripBuddy frontend", () => {
     const participantsSection = participantsHeading.closest("section") as HTMLElement;
 
     expect(participantsHeading).toBeInTheDocument();
-    expect(within(participantsSection).getByText("User #7")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();
-    expect(within(participantsSection).getByText("User #8")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("Milan Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("viewer")).toBeInTheDocument();
   });
 
   it("renders trip invites in trip details", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -383,7 +653,7 @@ describe("TripBuddy frontend", () => {
 
   it("submits invite form and refreshes invite list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
@@ -447,7 +717,7 @@ describe("TripBuddy frontend", () => {
 
   it("adds a participant and refreshes participants list", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
@@ -491,7 +761,7 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /paris/i }));
-    await screen.findAllByText("User #7");
+    await screen.findAllByText("Ana Traveler");
 
     await user.type(screen.getByLabelText(/participant user id/i), "8");
     await user.selectOptions(screen.getByLabelText(/participant role/i), "viewer");
@@ -506,12 +776,12 @@ describe("TripBuddy frontend", () => {
         })
       )
     );
-    expect(await screen.findByText("User #8")).toBeInTheDocument();
+    expect(await screen.findByText("Milan Traveler")).toBeInTheDocument();
   });
 
   it("shows duplicate participant error", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     mockFetch((url, init) => {
       if (url.endsWith("/trips")) {
         return mockResponse([trip]);
@@ -547,7 +817,7 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /paris/i }));
-    await screen.findAllByText("User #7");
+    await screen.findAllByText("Ana Traveler");
 
     await user.type(screen.getByLabelText(/participant user id/i), "7");
     await user.click(screen.getByRole("button", { name: /add participant/i }));
@@ -556,26 +826,90 @@ describe("TripBuddy frontend", () => {
   });
 
   it("shows success when accepting an invite", async () => {
-    localStorage.setItem("token", "test-token");
-    window.history.pushState({}, "", "/invites/invite-token-123/accept");
-    mockFetch((url, init) => {
+    setAuthenticatedSession();
+    window.history.pushState({}, "", "/invite/invite-token-123");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
       if (url.endsWith("/trips/invites/invite-token-123/accept") && init?.method === "POST") {
         return mockResponse(acceptedInvite);
       }
 
       return mockResponse({});
     });
+    vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
 
-    expect(
-      await screen.findByText("Invite accepted. This trip is now available in your dashboard.")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
+    expect(screen.getByText("This trip was added to your account.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open accepted trip/i })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/invites/invite-token-123/accept"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
+      })
+    );
+  });
+
+  it("accepts a public invite without an Authorization header when logged out", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/invites/public-token/accept") && init?.method === "POST") {
+        return mockResponse({
+          ...acceptedInvite,
+          token: "public-token",
+          accountCreated: true,
+        });
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/invite/public-token");
+
+    render(<App />);
+
+    expect(await screen.findByText("Your TripBuddy account has been created")).toBeInTheDocument();
+    expect(screen.getByText(/Temporary login credentials were sent to friend@example.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/password123/i)).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/invites/public-token/accept"),
+      expect.objectContaining({ headers: {} })
+    );
+  });
+
+  it("does not duplicate invite acceptance during Strict Mode remount", async () => {
+    setAuthenticatedSession();
+    window.history.pushState({}, "", "/invite/strict-token");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/invites/strict-token/accept") && init?.method === "POST") {
+        return mockResponse({ ...acceptedInvite, token: "strict-token" });
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+
+    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
+    const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
+      url.toString().endsWith("/trips/invites/strict-token/accept")
+    );
+    expect(acceptCalls).toHaveLength(1);
   });
 
   it("shows an error for an invalid invite", async () => {
-    localStorage.setItem("token", "test-token");
-    window.history.pushState({}, "", "/invites/bad-token/accept");
+    setAuthenticatedSession();
+    window.history.pushState({}, "", "/invite/bad-token");
     mockFetch((url, init) => {
       if (url.endsWith("/trips/invites/bad-token/accept") && init?.method === "POST") {
         return mockResponse({ error: "Invite not found" }, 404);
@@ -586,11 +920,12 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Invite not found")).toBeInTheDocument();
+    expect(await screen.findByText("Invitation not found")).toBeInTheDocument();
+    expect(screen.getByText("The link may be invalid or no longer available.")).toBeInTheDocument();
   });
 
   it("shows an error for an already accepted invite", async () => {
-    localStorage.setItem("token", "test-token");
+    setAuthenticatedSession();
     window.history.pushState({}, "", "/invites/used-token/accept");
     mockFetch((url, init) => {
       if (url.endsWith("/trips/invites/used-token/accept") && init?.method === "POST") {
@@ -602,6 +937,90 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Invite already accepted")).toBeInTheDocument();
+    expect(await screen.findByText("Invitation already accepted")).toBeInTheDocument();
+  });
+
+  it("does not call the API for a blank invite token", async () => {
+    const fetchMock = vi.fn(() => mockResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/invite/%20");
+
+    render(<App />);
+
+    expect(await screen.findByText("Unable to accept invitation")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reruns invite acceptance after logging in with a preserved invite redirect", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/existing-account-token");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/invites/existing-account-token/accept") && init?.method === "POST") {
+        const headers = init.headers as Record<string, string>;
+
+        if (headers.Authorization === "Bearer test-token") {
+          return mockResponse({ ...acceptedInvite, token: "existing-account-token" });
+        }
+
+        return mockResponse({ error: "Login required for invited email" }, 401);
+      }
+
+      if (url.endsWith("/auth/login") && init?.method === "POST") {
+        return mockResponse({ token: "test-token", user: authUser });
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /log in to accept invitation/i }));
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
+    const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
+      url.toString().endsWith("/trips/invites/existing-account-token/accept")
+    );
+    expect(acceptCalls).toHaveLength(2);
+  });
+
+  it("preserves the accepted trip destination for newly created accounts", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/new-account-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/new-account-token/accept") && init?.method === "POST") {
+        return mockResponse({
+          ...acceptedInvite,
+          token: "new-account-token",
+          accountCreated: true,
+        });
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /go to login/i }));
+
+    expect(window.location.search).toBe("?redirect=%2F%3FopenTrip%3D1");
+    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+  });
+
+  it("rejects unsafe login redirects and uses the default dashboard flow", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/?redirect=https%3A%2F%2Fevil.example");
+    mockDefaultApi();
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByRole("heading", { name: /your trips/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 });

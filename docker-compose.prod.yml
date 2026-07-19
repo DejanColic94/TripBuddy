@@ -44,6 +44,7 @@ services:
       TRIP_DB_USER: ${TRIP_DB_USER:-tripbuddy_trip_user}
       TRIP_DB_PASSWORD: ${TRIP_DB_PASSWORD:-change_me}
       TRIP_JWT_SECRET: ${IDENTITY_JWT_SECRET:-change_me}
+      IDENTITY_SERVICE_URL: http://identity-service:4001
     depends_on:
       trip-db:
         condition: service_healthy

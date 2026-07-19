@@ -10,7 +10,10 @@ import { formatTripDate, type Trip, type TripParticipantSummary } from "../types
 type TripDetailsPageProps = {
   token: string;
   trip: Trip;
+  canManage: boolean;
   onBack: () => void;
+  onTripUpdated: (trip: Trip) => void;
+  onTripDeleted: () => void;
   onUnauthorized: () => void;
 };
 
@@ -67,7 +70,15 @@ const formatExpenseAmount = (amount: number, currency: string) => {
   }
 };
 
-function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPageProps) {
+function TripDetailsPage({
+  token,
+  trip,
+  canManage,
+  onBack,
+  onTripUpdated,
+  onTripDeleted,
+  onUnauthorized,
+}: TripDetailsPageProps) {
   const [summary, setSummary] = useState<TripSummary | null>(null);
   const [currentTrip, setCurrentTrip] = useState(trip);
   const [participants, setParticipants] = useState<TripParticipant[]>(trip.participants ?? []);
@@ -75,6 +86,12 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
   const [participantUserId, setParticipantUserId] = useState("");
   const [participantRole, setParticipantRole] = useState("viewer");
+  const [isEditingTrip, setIsEditingTrip] = useState(false);
+  const [editName, setEditName] = useState(trip.name);
+  const [editDescription, setEditDescription] = useState(trip.description ?? "");
+  const [editDestination, setEditDestination] = useState(trip.destination ?? "");
+  const [editStartDate, setEditStartDate] = useState(trip.startDate?.slice(0, 10) ?? "");
+  const [editEndDate, setEditEndDate] = useState(trip.endDate?.slice(0, 10) ?? "");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
   const [title, setTitle] = useState("");
@@ -88,6 +105,8 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
+  const [isTripSaving, setIsTripSaving] = useState(false);
+  const [isTripDeleting, setIsTripDeleting] = useState(false);
   const [isInvitesLoading, setIsInvitesLoading] = useState(true);
   const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,6 +115,7 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
   const [isExpenseSubmitting, setIsExpenseSubmitting] = useState(false);
   const [summaryError, setSummaryError] = useState("");
   const [participantError, setParticipantError] = useState("");
+  const [tripManagementError, setTripManagementError] = useState("");
   const [inviteError, setInviteError] = useState("");
   const [error, setError] = useState("");
   const [expenseError, setExpenseError] = useState("");
@@ -301,6 +321,11 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
 
   useEffect(() => {
     setCurrentTrip(trip);
+    setEditName(trip.name);
+    setEditDescription(trip.description ?? "");
+    setEditDestination(trip.destination ?? "");
+    setEditStartDate(trip.startDate?.slice(0, 10) ?? "");
+    setEditEndDate(trip.endDate?.slice(0, 10) ?? "");
     setParticipants(trip.participants ?? []);
     void loadTripDetails();
     void loadSummary();
@@ -317,6 +342,88 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
     loadTripDetails,
     trip,
   ]);
+
+  const handleTripUpdate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTripManagementError("");
+    setIsTripSaving(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: editName,
+          description: editDescription || undefined,
+          destination: editDestination || undefined,
+          startDate: editStartDate || undefined,
+          endDate: editEndDate || undefined,
+        }),
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as Trip | { error?: string };
+
+      if (!response.ok || !("id" in data)) {
+        setTripManagementError(("error" in data && data.error) || "Failed to update trip");
+        return;
+      }
+
+      const updatedTrip = {
+        ...data,
+        participants: currentTrip.participants,
+      };
+      setCurrentTrip(updatedTrip);
+      onTripUpdated(updatedTrip);
+      setIsEditingTrip(false);
+    } catch {
+      setTripManagementError("Failed to update trip");
+    } finally {
+      setIsTripSaving(false);
+    }
+  };
+
+  const handleTripDelete = async () => {
+    if (!window.confirm("Delete this trip and all related data?")) {
+      return;
+    }
+
+    setTripManagementError("");
+    setIsTripDeleting(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        setTripManagementError(data.error || "Failed to delete trip");
+        return;
+      }
+
+      onTripDeleted();
+    } catch {
+      setTripManagementError("Failed to delete trip");
+    } finally {
+      setIsTripDeleting(false);
+    }
+  };
 
   const handleParticipantSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -520,10 +627,84 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
           <h1>{currentTrip.name}</h1>
           <p>{currentTrip.description || "No description added yet."}</p>
         </div>
-        <button className="secondary-button" type="button" onClick={onBack}>
-          Back to trips
-        </button>
+        <div className="details-actions">
+          {canManage ? (
+            <>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setTripManagementError("");
+                  setIsEditingTrip((current) => !current);
+                }}
+              >
+                {isEditingTrip ? "Cancel edit" : "Edit trip"}
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={handleTripDelete}
+                disabled={isTripDeleting}
+              >
+                {isTripDeleting ? "Deleting..." : "Delete trip"}
+              </button>
+            </>
+          ) : null}
+          <button className="secondary-button" type="button" onClick={onBack}>
+            Back to trips
+          </button>
+        </div>
       </div>
+
+      {tripManagementError ? <p className="error">{tripManagementError}</p> : null}
+
+      {canManage && isEditingTrip ? (
+        <section className="panel trip-edit-card">
+          <h2>Edit trip</h2>
+          <form className="form-stack" onSubmit={handleTripUpdate}>
+            <label>
+              Trip name
+              <input value={editName} onChange={(event) => setEditName(event.target.value)} required />
+            </label>
+            <label>
+              Description
+              <textarea
+                value={editDescription}
+                onChange={(event) => setEditDescription(event.target.value)}
+                rows={3}
+              />
+            </label>
+            <label>
+              Destination
+              <input
+                value={editDestination}
+                onChange={(event) => setEditDestination(event.target.value)}
+              />
+            </label>
+            <div className="date-inputs">
+              <label>
+                Start date
+                <input
+                  type="date"
+                  value={editStartDate}
+                  onChange={(event) => setEditStartDate(event.target.value)}
+                />
+              </label>
+              <label>
+                End date
+                <input
+                  type="date"
+                  value={editEndDate}
+                  onChange={(event) => setEditEndDate(event.target.value)}
+                />
+              </label>
+            </div>
+            <button className="primary-button" type="submit" disabled={isTripSaving}>
+              {isTripSaving ? "Saving..." : "Save changes"}
+            </button>
+          </form>
+        </section>
+      ) : null}
 
       <div className="details-layout">
         <section className="panel trip-info-card">
@@ -535,6 +716,10 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
         <section className="panel metadata-card">
           <h2>Trip metadata</h2>
           <dl className="metadata-list">
+            <div>
+              <dt>Destination</dt>
+              <dd>{currentTrip.destination || "-"}</dd>
+            </div>
             <div>
               <dt>Start date</dt>
               <dd>{formatTripDate(currentTrip.startDate)}</dd>
@@ -636,7 +821,7 @@ function TripDetailsPage({ token, trip, onBack, onUnauthorized }: TripDetailsPag
                   key={participant.id ?? `${currentTrip.id}-${participant.userId}`}
                 >
                   <div>
-                    <strong>User #{participant.userId}</strong>
+                    <strong>{participant.name || `User #${participant.userId}`}</strong>
                     <p>Trip participant</p>
                   </div>
                   <span>{participant.role}</span>
