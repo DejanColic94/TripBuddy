@@ -10,6 +10,7 @@ type RegisterResponse = {
 };
 
 function RegisterPage({ onBackToLogin }: RegisterPageProps) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,7 +29,7 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ name, email, password }),
       });
 
       const data = (await response.json()) as RegisterResponse;
@@ -38,6 +39,7 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         return;
       }
 
+      setName("");
       setEmail("");
       setPassword("");
       setSuccess(data.message ?? "Registration successful. You can now log in.");
@@ -57,6 +59,15 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       </div>
 
       <form className="form-stack" onSubmit={handleSubmit}>
+        <label>
+          Name
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+          />
+        </label>
+
         <label>
           Email
           <input

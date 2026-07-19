@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { API_BASE_URL } from "../config/api";
+import type { AuthUser } from "../types/auth";
 import { formatTripDate, type Trip } from "../types/trip";
 
 type TripsPageProps = {
   token: string;
+  currentUser: AuthUser | null;
   onUnauthorized: () => void;
   onSelectTrip: (trip: Trip) => void;
 };
 
 type CreateTripResponse = Trip | { error?: string };
 
-function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
+function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPageProps) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [destination, setDestination] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [error, setError] = useState("");
@@ -71,6 +74,7 @@ function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
         body: JSON.stringify({
           name,
           description: description || undefined,
+          destination: destination || undefined,
           startDate: startDate || undefined,
           endDate: endDate || undefined,
         }),
@@ -91,6 +95,7 @@ function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
       setTrips((currentTrips) => [data, ...currentTrips]);
       setName("");
       setDescription("");
+      setDestination("");
       setStartDate("");
       setEndDate("");
       setSuccessMessage("Trip created");
@@ -108,6 +113,9 @@ function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
           <p className="eyebrow">TripBuddy</p>
           <h1>Your trips</h1>
           <p className="page-subtitle">Shape the details now, enjoy the journey later.</p>
+          {currentUser ? (
+            <p className="current-user">Signed in as <strong>{currentUser.name}</strong></p>
+          ) : null}
         </div>
         <button className="secondary-button" type="button" onClick={onUnauthorized}>
           Logout
@@ -130,6 +138,14 @@ function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 rows={3}
+              />
+            </label>
+
+            <label>
+              Destination
+              <input
+                value={destination}
+                onChange={(event) => setDestination(event.target.value)}
               />
             </label>
 
@@ -207,7 +223,7 @@ function TripsPage({ token, onUnauthorized, onSelectTrip }: TripsPageProps) {
                       <div>
                         {trip.participants.map((participant) => (
                           <span key={`${trip.id}-${participant.userId}`}>
-                            User #{participant.userId} · {participant.role}
+                            {participant.name || `User #${participant.userId}`} · {participant.role}
                           </span>
                         ))}
                       </div>

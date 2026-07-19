@@ -1,13 +1,21 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "crypto";
-import type { DatabaseError } from "pg";
+import type { DatabaseError, PoolClient } from "pg";
+import {
+  createInvitedUser,
+  getUserByEmail,
+  getUserNames,
+  IdentityClientError,
+} from "../clients/identityClient";
 import pool from "../db";
-import authMiddleware from "../middleware/auth";
+import authMiddleware, { optionalAuthMiddleware } from "../middleware/auth";
+import { sendInvitationEmail } from "../services/emailService";
 
 type TripRow = {
   id: number;
   name: string;
   description: string | null;
+  destination: string | null;
   start_date: string | null;
   end_date: string | null;
   created_by: number;
@@ -17,6 +25,7 @@ type TripRow = {
 type TripParticipantSummary = {
   userId: number;
   role: string;
+  name?: string;
 };
 
 type TripWithParticipantsRow = TripRow & {
@@ -26,6 +35,7 @@ type TripWithParticipantsRow = TripRow & {
 type CreateTripBody = {
   name?: string;
   description?: string;
+  destination?: string;
   startDate?: string;
   endDate?: string;
 };
@@ -51,6 +61,11 @@ type TripInviteRow = {
   role: string;
   accepted_at: string | null;
   created_at: string;
+};
+
+type OwnedTripInviteRow = {
+  id: number;
+  name: string;
 };
 
 type CreateTripInviteBody = {
@@ -99,13 +114,26 @@ type TripSummaryRow = {
 
 const router = Router();
 
-router.use(authMiddleware);
+class InviteEmailDeliveryError extends Error {
+  constructor(public readonly originalError: unknown) {
+    super("Failed to send invitation email");
+  }
+}
+
+async function rollbackTransaction(client: PoolClient) {
+  try {
+    await client.query("ROLLBACK");
+  } catch (rollbackError) {
+    console.error("[TRIPS] Failed to rollback transaction:", rollbackError);
+  }
+}
 
 function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
   return {
     id: trip.id,
     name: trip.name,
     description: trip.description,
+    destination: trip.destination,
     startDate: trip.start_date,
     endDate: trip.end_date,
     createdBy: trip.created_by,
@@ -129,14 +157,30 @@ function mapItineraryItem(item: ItineraryItemRow) {
   };
 }
 
-function mapTripParticipant(participant: TripParticipantRow) {
+function mapTripParticipant(participant: TripParticipantRow, name?: string) {
   return {
     id: participant.id,
     tripId: participant.trip_id,
     userId: participant.user_id,
+    name,
     role: participant.role,
     createdAt: participant.created_at,
   };
+}
+
+async function addParticipantNames<T extends TripParticipantSummary>(
+  participants: T[],
+  authorization?: string
+) {
+  const names = await getUserNames(
+    participants.map((participant) => participant.userId),
+    authorization
+  );
+
+  return participants.map((participant) => ({
+    ...participant,
+    name: names.get(participant.userId),
+  }));
 }
 
 function mapTripInvite(invite: TripInviteRow) {
@@ -172,6 +216,15 @@ async function userOwnsTrip(tripId: number, userId: number): Promise<boolean> {
   return result.rowCount !== null && result.rowCount > 0;
 }
 
+async function getTripOwnerId(tripId: number): Promise<number | null> {
+  const result = await pool.query<{ created_by: number }>(
+    "SELECT created_by FROM trips WHERE id = $1",
+    [tripId]
+  );
+
+  return result.rows[0]?.created_by ?? null;
+}
+
 async function userCanAccessTrip(tripId: number, userId: number): Promise<boolean> {
   const result = await pool.query<{ id: number }>(
     `
@@ -193,6 +246,149 @@ function generateInviteToken() {
   return randomBytes(32).toString("hex");
 }
 
+router.post(
+  "/invites/:token/accept",
+  optionalAuthMiddleware,
+  async (req: Request<{ token: string }>, res: Response) => {
+    const { token } = req.params;
+
+    if (typeof token !== "string" || token.trim().length === 0) {
+      return res.status(400).json({ error: "Invite token is required" });
+    }
+
+    let client: PoolClient | undefined;
+    let accountCreated = false;
+
+    try {
+      client = await pool.connect();
+      await client.query("BEGIN");
+
+      const inviteResult = await client.query<TripInviteRow>(
+        `
+          SELECT id, trip_id, email, token, role, accepted_at, created_at
+          FROM trip_invites
+          WHERE token = $1
+          FOR UPDATE
+        `,
+        [token]
+      );
+
+      if (inviteResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      const invite = inviteResult.rows[0];
+
+      if (invite.accepted_at) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Invite already accepted" });
+      }
+
+      const inviteEmail = invite.email.trim().toLowerCase();
+      let participantUserId: number;
+
+      if (req.user) {
+        const authenticatedEmail = req.user.email?.trim().toLowerCase();
+
+        if (!authenticatedEmail) {
+          await client.query("ROLLBACK");
+          return res
+            .status(403)
+            .json({ error: "Authenticated account email is unavailable" });
+        }
+
+        if (authenticatedEmail !== inviteEmail) {
+          await client.query("ROLLBACK");
+          return res
+            .status(403)
+            .json({ error: "Invite belongs to a different email" });
+        }
+
+        participantUserId = req.user.id;
+      } else {
+        let existingUser;
+
+        try {
+          existingUser = await getUserByEmail(inviteEmail);
+        } catch (error) {
+          console.error("getUserByEmail failed:", error);
+          throw error;
+        }
+
+        if (existingUser) {
+          await client.query("ROLLBACK");
+          return res
+            .status(401)
+            .json({ error: "Login required for invited email" });
+        }
+
+        try {
+          // Identity user creation cannot be part of this Postgres transaction.
+          // If later Trip DB writes fail, the new account may remain while the invite stays unaccepted.
+          const invitedUserResult = await createInvitedUser(inviteEmail);
+
+          if (!invitedUserResult.created) {
+            await client.query("ROLLBACK");
+            return res
+              .status(401)
+              .json({ error: "Login required for invited email" });
+          }
+
+          participantUserId = invitedUserResult.user.id;
+          accountCreated = true;
+        } catch (error) {
+            console.error("createInvitedUser failed:", error);
+            throw error;
+        }
+      }
+
+      await client.query(
+        `
+          INSERT INTO trip_participants (trip_id, user_id, role)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (trip_id, user_id)
+          DO UPDATE SET role = EXCLUDED.role
+        `,
+        [invite.trip_id, participantUserId, invite.role]
+      );
+
+      const acceptedInviteResult = await client.query<TripInviteRow>(
+        `
+          UPDATE trip_invites
+          SET accepted_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING id, trip_id, email, token, role, accepted_at, created_at
+        `,
+        [invite.id]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(200).json({
+        ...mapTripInvite(acceptedInviteResult.rows[0]),
+        accountCreated,
+      });
+    } catch (error) {
+      if (client) {
+        await rollbackTransaction(client);
+      }
+
+      if (error instanceof IdentityClientError) {
+        console.error("[TRIPS] Failed to process invited account:", error);
+        return res.status(502).json({ error: "Failed to process invited account" });
+      }
+
+      console.error("[TRIPS] Failed to accept trip invite:", error);
+      return res.status(500).json({ error: "Failed to accept trip invite" });
+    } finally {
+      client?.release();
+    }
+  }
+);
+
+router.use(authMiddleware);
+
 router.get("/", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -202,7 +398,8 @@ router.get("/", async (req: Request, res: Response) => {
     const result = await pool.query<TripWithParticipantsRow>(
       `
         WITH visible_trips AS (
-          SELECT DISTINCT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+          SELECT DISTINCT trips.id, trips.name, trips.description, trips.destination,
+            trips.start_date, trips.end_date,
             trips.created_by, trips.created_at
           FROM trips
           LEFT JOIN trip_participants current_user_participants
@@ -212,6 +409,7 @@ router.get("/", async (req: Request, res: Response) => {
             OR current_user_participants.id IS NOT NULL
         )
         SELECT visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.destination,
           visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
           visible_trips.created_at,
           COALESCE(
@@ -225,6 +423,7 @@ router.get("/", async (req: Request, res: Response) => {
         LEFT JOIN trip_participants
           ON trip_participants.trip_id = visible_trips.id
         GROUP BY visible_trips.id, visible_trips.name, visible_trips.description,
+          visible_trips.destination,
           visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
           visible_trips.created_at
         ORDER BY visible_trips.created_at DESC
@@ -232,70 +431,29 @@ router.get("/", async (req: Request, res: Response) => {
       [req.user.id]
     );
 
+    const participantNames = await getUserNames(
+      result.rows.flatMap((trip) =>
+        trip.participants.map((participant) => participant.userId)
+      ),
+      req.headers.authorization
+    );
+
     return res.status(200).json(
-      result.rows.map((trip) => mapTrip(trip, trip.participants))
+      result.rows.map((trip) =>
+        mapTrip(
+          trip,
+          trip.participants.map((participant) => ({
+            ...participant,
+            name: participantNames.get(participant.userId),
+          }))
+        )
+      )
     );
   } catch (error) {
     console.error("[TRIPS] Failed to get trips:", error);
     return res.status(500).json({ error: "Failed to get trips" });
   }
 });
-
-router.post(
-  "/invites/:token/accept",
-  async (req: Request<{ token: string }>, res: Response) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const { token } = req.params;
-
-    try {
-      const inviteResult = await pool.query<TripInviteRow>(
-        `
-          SELECT id, trip_id, email, token, role, accepted_at, created_at
-          FROM trip_invites
-          WHERE token = $1
-        `,
-        [token]
-      );
-
-      if (inviteResult.rowCount === 0) {
-        return res.status(404).json({ error: "Invite not found" });
-      }
-
-      const invite = inviteResult.rows[0];
-
-      if (invite.accepted_at) {
-        return res.status(409).json({ error: "Invite already accepted" });
-      }
-
-      await pool.query(
-        `
-          INSERT INTO trip_participants (trip_id, user_id, role)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (trip_id, user_id) DO NOTHING
-        `,
-        [invite.trip_id, req.user.id, invite.role]
-      );
-
-      const acceptedInviteResult = await pool.query<TripInviteRow>(
-        `
-          UPDATE trip_invites
-          SET accepted_at = CURRENT_TIMESTAMP
-          WHERE id = $1
-          RETURNING id, trip_id, email, token, role, accepted_at, created_at
-        `,
-        [invite.id]
-      );
-
-      return res.status(200).json(mapTripInvite(acceptedInviteResult.rows[0]));
-    } catch (error) {
-      console.error("[TRIPS] Failed to accept trip invite:", error);
-      return res.status(500).json({ error: "Failed to accept trip invite" });
-    }
-  }
-);
 
 router.get("/:id", async (req: Request, res: Response) => {
   if (!req.user) {
@@ -315,7 +473,8 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const result = await pool.query<TripWithParticipantsRow>(
       `
-        SELECT trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+        SELECT trips.id, trips.name, trips.description, trips.destination,
+          trips.start_date, trips.end_date,
           trips.created_by, trips.created_at,
           COALESCE(
             json_agg(
@@ -328,7 +487,8 @@ router.get("/:id", async (req: Request, res: Response) => {
         LEFT JOIN trip_participants
           ON trip_participants.trip_id = trips.id
         WHERE trips.id = $1
-        GROUP BY trips.id, trips.name, trips.description, trips.start_date, trips.end_date,
+        GROUP BY trips.id, trips.name, trips.description, trips.destination,
+          trips.start_date, trips.end_date,
           trips.created_by, trips.created_at
       `,
       [tripId]
@@ -340,10 +500,139 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const trip = result.rows[0];
 
-    return res.status(200).json(mapTrip(trip, trip.participants));
+    const participants = await addParticipantNames(
+      trip.participants,
+      req.headers.authorization
+    );
+
+    return res.status(200).json(mapTrip(trip, participants));
   } catch (error) {
     console.error("[TRIPS] Failed to get trip:", error);
     return res.status(500).json({ error: "Failed to get trip" });
+  }
+});
+
+router.put(
+  "/:id",
+  async (req: Request<{ id: string }, {}, CreateTripBody>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const { name, description, destination, startDate, endDate } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return res.status(400).json({ error: "name is required" });
+    }
+
+    if (description !== undefined && typeof description !== "string") {
+      return res.status(400).json({ error: "description must be a string" });
+    }
+
+    if (destination !== undefined && typeof destination !== "string") {
+      return res.status(400).json({ error: "destination must be a string" });
+    }
+
+    if (startDate !== undefined && typeof startDate !== "string") {
+      return res.status(400).json({ error: "startDate must be a string" });
+    }
+
+    if (endDate !== undefined && typeof endDate !== "string") {
+      return res.status(400).json({ error: "endDate must be a string" });
+    }
+
+    try {
+      const ownerId = await getTripOwnerId(tripId);
+
+      if (ownerId === null) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+
+      if (ownerId !== req.user.id) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const result = await pool.query<TripRow>(
+        `
+          UPDATE trips
+          SET name = $1, description = $2, destination = $3, start_date = $4, end_date = $5
+          WHERE id = $6
+          RETURNING id, name, description, destination, start_date, end_date, created_by, created_at
+        `,
+        [
+          name.trim(),
+          description?.trim() || null,
+          destination?.trim() || null,
+          startDate || null,
+          endDate || null,
+          tripId,
+        ]
+      );
+
+      return res.status(200).json(mapTrip(result.rows[0]));
+    } catch (error) {
+      const dbError = error as DatabaseError;
+
+      if (dbError.code === "22007") {
+        return res.status(400).json({ error: "startDate and endDate must be valid dates" });
+      }
+
+      console.error("[TRIPS] Failed to update trip:", error);
+      return res.status(500).json({ error: "Failed to update trip" });
+    }
+  }
+);
+
+router.delete("/:id", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const tripResult = await client.query<{ created_by: number }>(
+      "SELECT created_by FROM trips WHERE id = $1 FOR UPDATE",
+      [tripId]
+    );
+    const ownerId = tripResult.rows[0]?.created_by;
+
+    if (ownerId === undefined) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Trip not found" });
+    }
+
+    if (ownerId !== req.user.id) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await client.query("DELETE FROM trip_invites WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM expenses WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM itinerary_items WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM trip_participants WHERE trip_id = $1", [tripId]);
+    await client.query("DELETE FROM trips WHERE id = $1", [tripId]);
+    await client.query("COMMIT");
+
+    return res.status(204).send();
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("[TRIPS] Failed to delete trip:", error);
+    return res.status(500).json({ error: "Failed to delete trip" });
+  } finally {
+    client.release();
   }
 });
 
@@ -402,24 +691,73 @@ router.post(
       return res.status(400).json({ error: "role must be viewer" });
     }
 
+    const client = await pool.connect();
+
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
+      await client.query("BEGIN");
+
+      const tripResult = await client.query<OwnedTripInviteRow>(
+        "SELECT id, name FROM trips WHERE id = $1 AND created_by = $2 FOR UPDATE",
+        [tripId, req.user.id]
+      );
+      const trip = tripResult.rows[0];
+
+      if (!trip) {
+        await client.query("ROLLBACK");
         return res.status(404).json({ error: "Trip not found" });
       }
 
-      const result = await pool.query<TripInviteRow>(
+      const inviteToken = generateInviteToken();
+      const normalizedEmail = email.trim().toLowerCase();
+      const inviteRole = role ?? "viewer";
+
+      const result = await client.query<TripInviteRow>(
         `
           INSERT INTO trip_invites (trip_id, email, token, role)
           VALUES ($1, $2, $3, $4)
           RETURNING id, trip_id, email, token, role, accepted_at, created_at
         `,
-        [tripId, email.trim().toLowerCase(), generateInviteToken(), role ?? "viewer"]
+        [tripId, normalizedEmail, inviteToken, inviteRole]
       );
+
+      try {
+        await sendInvitationEmail({
+          recipientEmail: normalizedEmail,
+          inviterName: req.user.name ?? "A TripBuddy user",
+          tripName: trip.name,
+          inviteToken,
+        });
+      } catch (error) {
+        throw new InviteEmailDeliveryError(error);
+      }
+
+      await client.query("COMMIT");
 
       return res.status(201).json(mapTripInvite(result.rows[0]));
     } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error(
+          "[TRIPS] Failed to rollback trip invite transaction:",
+          rollbackError
+        );
+      }
+
+      if (error instanceof InviteEmailDeliveryError) {
+        console.error(
+          "[TRIPS] Failed to send trip invite email:",
+          error.originalError
+        );
+        return res
+          .status(502)
+          .json({ error: "Failed to send invitation email" });
+      }
+
       console.error("[TRIPS] Failed to create trip invite:", error);
       return res.status(500).json({ error: "Failed to create trip invite" });
+    } finally {
+      client.release();
     }
   }
 );
@@ -450,7 +788,15 @@ router.get("/:id/participants", async (req: Request, res: Response) => {
       [tripId]
     );
 
-    return res.status(200).json(result.rows.map(mapTripParticipant));
+    const participants = result.rows.map((participant) =>
+      mapTripParticipant(participant)
+    );
+    const namedParticipants = await addParticipantNames(
+      participants,
+      req.headers.authorization
+    );
+
+    return res.status(200).json(namedParticipants);
   } catch (error) {
     console.error("[TRIPS] Failed to get trip participants:", error);
     return res.status(500).json({ error: "Failed to get trip participants" });
@@ -493,7 +839,11 @@ router.post(
         [tripId, userId, role ?? "viewer"]
       );
 
-      return res.status(201).json(mapTripParticipant(result.rows[0]));
+      const names = await getUserNames([userId], req.headers.authorization);
+
+      return res.status(201).json(
+        mapTripParticipant(result.rows[0], names.get(userId))
+      );
     } catch (error) {
       const dbError = error as DatabaseError;
 
@@ -736,7 +1086,7 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { name, description, startDate, endDate } = req.body;
+  const { name, description, destination, startDate, endDate } = req.body;
 
   if (typeof name !== "string" || name.trim().length === 0) {
     return res.status(400).json({ error: "name is required" });
@@ -744,6 +1094,10 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
 
   if (description !== undefined && typeof description !== "string") {
     return res.status(400).json({ error: "description must be a string" });
+  }
+
+  if (destination !== undefined && typeof destination !== "string") {
+    return res.status(400).json({ error: "destination must be a string" });
   }
 
   if (startDate !== undefined && typeof startDate !== "string") {
@@ -757,11 +1111,18 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
   try {
     const result = await pool.query<TripRow>(
       `
-        INSERT INTO trips (name, description, start_date, end_date, created_by)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, description, start_date, end_date, created_by, created_at
+        INSERT INTO trips (name, description, destination, start_date, end_date, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, name, description, destination, start_date, end_date, created_by, created_at
       `,
-      [name.trim(), description ?? null, startDate ?? null, endDate ?? null, req.user.id]
+      [
+        name.trim(),
+        description?.trim() || null,
+        destination?.trim() || null,
+        startDate || null,
+        endDate || null,
+        req.user.id,
+      ]
     );
 
     await pool.query(

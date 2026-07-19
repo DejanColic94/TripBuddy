@@ -28,11 +28,16 @@ export async function initDb(): Promise<void> {
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
+        destination VARCHAR(255),
         start_date DATE,
         end_date DATE,
         created_by INTEGER NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+    await pool.query(`
+      ALTER TABLE trips
+      ADD COLUMN IF NOT EXISTS destination VARCHAR(255)
     `);
     console.log("[DB] Trips table ensured");
 
