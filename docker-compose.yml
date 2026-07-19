@@ -44,6 +44,7 @@ services:
       IDENTITY_DB_USER: postgres
       IDENTITY_DB_PASSWORD: postgres
       IDENTITY_JWT_SECRET: tripbuddy_identity_secret
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET}
     volumes:
       - ./services/identity-service:/app
       - /app/node_modules
@@ -66,6 +67,7 @@ services:
       TRIP_DB_PASSWORD: postgres
       TRIP_JWT_SECRET: tripbuddy_identity_secret
       IDENTITY_SERVICE_URL: http://identity-service:4001
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET}
     volumes:
       - ./services/trip-service:/app
       - /app/node_modules

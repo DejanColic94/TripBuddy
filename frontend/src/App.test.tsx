@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Trip } from "./types/trip";
@@ -826,25 +827,89 @@ describe("TripBuddy frontend", () => {
 
   it("shows success when accepting an invite", async () => {
     setAuthenticatedSession();
-    window.history.pushState({}, "", "/invites/invite-token-123/accept");
-    mockFetch((url, init) => {
+    window.history.pushState({}, "", "/invite/invite-token-123");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
       if (url.endsWith("/trips/invites/invite-token-123/accept") && init?.method === "POST") {
         return mockResponse(acceptedInvite);
       }
 
       return mockResponse({});
     });
+    vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
 
-    expect(
-      await screen.findByText("Invite accepted. This trip is now available in your dashboard.")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
+    expect(screen.getByText("This trip was added to your account.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open accepted trip/i })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/invites/invite-token-123/accept"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
+      })
+    );
+  });
+
+  it("accepts a public invite without an Authorization header when logged out", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/invites/public-token/accept") && init?.method === "POST") {
+        return mockResponse({
+          ...acceptedInvite,
+          token: "public-token",
+          accountCreated: true,
+        });
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/invite/public-token");
+
+    render(<App />);
+
+    expect(await screen.findByText("Your TripBuddy account has been created")).toBeInTheDocument();
+    expect(screen.getByText(/Temporary login credentials were sent to friend@example.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/password123/i)).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/invites/public-token/accept"),
+      expect.objectContaining({ headers: {} })
+    );
+  });
+
+  it("does not duplicate invite acceptance during Strict Mode remount", async () => {
+    setAuthenticatedSession();
+    window.history.pushState({}, "", "/invite/strict-token");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/invites/strict-token/accept") && init?.method === "POST") {
+        return mockResponse({ ...acceptedInvite, token: "strict-token" });
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+
+    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
+    const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
+      url.toString().endsWith("/trips/invites/strict-token/accept")
+    );
+    expect(acceptCalls).toHaveLength(1);
   });
 
   it("shows an error for an invalid invite", async () => {
     setAuthenticatedSession();
-    window.history.pushState({}, "", "/invites/bad-token/accept");
+    window.history.pushState({}, "", "/invite/bad-token");
     mockFetch((url, init) => {
       if (url.endsWith("/trips/invites/bad-token/accept") && init?.method === "POST") {
         return mockResponse({ error: "Invite not found" }, 404);
@@ -855,7 +920,8 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Invite not found")).toBeInTheDocument();
+    expect(await screen.findByText("Invitation not found")).toBeInTheDocument();
+    expect(screen.getByText("The link may be invalid or no longer available.")).toBeInTheDocument();
   });
 
   it("shows an error for an already accepted invite", async () => {
@@ -871,6 +937,90 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Invite already accepted")).toBeInTheDocument();
+    expect(await screen.findByText("Invitation already accepted")).toBeInTheDocument();
+  });
+
+  it("does not call the API for a blank invite token", async () => {
+    const fetchMock = vi.fn(() => mockResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/invite/%20");
+
+    render(<App />);
+
+    expect(await screen.findByText("Unable to accept invitation")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reruns invite acceptance after logging in with a preserved invite redirect", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/existing-account-token");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/invites/existing-account-token/accept") && init?.method === "POST") {
+        const headers = init.headers as Record<string, string>;
+
+        if (headers.Authorization === "Bearer test-token") {
+          return mockResponse({ ...acceptedInvite, token: "existing-account-token" });
+        }
+
+        return mockResponse({ error: "Login required for invited email" }, 401);
+      }
+
+      if (url.endsWith("/auth/login") && init?.method === "POST") {
+        return mockResponse({ token: "test-token", user: authUser });
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /log in to accept invitation/i }));
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
+    const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
+      url.toString().endsWith("/trips/invites/existing-account-token/accept")
+    );
+    expect(acceptCalls).toHaveLength(2);
+  });
+
+  it("preserves the accepted trip destination for newly created accounts", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/new-account-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/new-account-token/accept") && init?.method === "POST") {
+        return mockResponse({
+          ...acceptedInvite,
+          token: "new-account-token",
+          accountCreated: true,
+        });
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /go to login/i }));
+
+    expect(window.location.search).toBe("?redirect=%2F%3FopenTrip%3D1");
+    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+  });
+
+  it("rejects unsafe login redirects and uses the default dashboard flow", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/?redirect=https%3A%2F%2Fevil.example");
+    mockDefaultApi();
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByRole("heading", { name: /your trips/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 });
