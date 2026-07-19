@@ -312,7 +312,8 @@ router.post(
         try {
           existingUser = await getUserByEmail(inviteEmail);
         } catch (error) {
-          throw new IdentityClientError("Identity lookup failed");
+          console.error("getUserByEmail failed:", error);
+          throw error;
         }
 
         if (existingUser) {
@@ -337,7 +338,8 @@ router.post(
           participantUserId = invitedUserResult.user.id;
           accountCreated = true;
         } catch (error) {
-          throw new IdentityClientError("Identity invited user creation failed");
+            console.error("createInvitedUser failed:", error);
+            throw error;
         }
       }
 
