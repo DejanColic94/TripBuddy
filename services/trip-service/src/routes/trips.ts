@@ -1,9 +1,15 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "crypto";
-import type { DatabaseError } from "pg";
-import { getUserNames } from "../clients/identityClient";
+import type { DatabaseError, PoolClient } from "pg";
+import {
+  createInvitedUser,
+  getUserByEmail,
+  getUserNames,
+  IdentityClientError,
+} from "../clients/identityClient";
 import pool from "../db";
-import authMiddleware from "../middleware/auth";
+import authMiddleware, { optionalAuthMiddleware } from "../middleware/auth";
+import { sendInvitationEmail } from "../services/emailService";
 
 type TripRow = {
   id: number;
@@ -57,6 +63,11 @@ type TripInviteRow = {
   created_at: string;
 };
 
+type OwnedTripInviteRow = {
+  id: number;
+  name: string;
+};
+
 type CreateTripInviteBody = {
   email?: string;
   role?: string;
@@ -103,7 +114,19 @@ type TripSummaryRow = {
 
 const router = Router();
 
-router.use(authMiddleware);
+class InviteEmailDeliveryError extends Error {
+  constructor(public readonly originalError: unknown) {
+    super("Failed to send invitation email");
+  }
+}
+
+async function rollbackTransaction(client: PoolClient) {
+  try {
+    await client.query("ROLLBACK");
+  } catch (rollbackError) {
+    console.error("[TRIPS] Failed to rollback transaction:", rollbackError);
+  }
+}
 
 function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
   return {
@@ -223,6 +246,149 @@ function generateInviteToken() {
   return randomBytes(32).toString("hex");
 }
 
+router.post(
+  "/invites/:token/accept",
+  optionalAuthMiddleware,
+  async (req: Request<{ token: string }>, res: Response) => {
+    const { token } = req.params;
+
+    if (typeof token !== "string" || token.trim().length === 0) {
+      return res.status(400).json({ error: "Invite token is required" });
+    }
+
+    let client: PoolClient | undefined;
+    let accountCreated = false;
+
+    try {
+      client = await pool.connect();
+      await client.query("BEGIN");
+
+      const inviteResult = await client.query<TripInviteRow>(
+        `
+          SELECT id, trip_id, email, token, role, accepted_at, created_at
+          FROM trip_invites
+          WHERE token = $1
+          FOR UPDATE
+        `,
+        [token]
+      );
+
+      if (inviteResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      const invite = inviteResult.rows[0];
+
+      if (invite.accepted_at) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Invite already accepted" });
+      }
+
+      const inviteEmail = invite.email.trim().toLowerCase();
+      let participantUserId: number;
+
+      if (req.user) {
+        const authenticatedEmail = req.user.email?.trim().toLowerCase();
+
+        if (!authenticatedEmail) {
+          await client.query("ROLLBACK");
+          return res
+            .status(403)
+            .json({ error: "Authenticated account email is unavailable" });
+        }
+
+        if (authenticatedEmail !== inviteEmail) {
+          await client.query("ROLLBACK");
+          return res
+            .status(403)
+            .json({ error: "Invite belongs to a different email" });
+        }
+
+        participantUserId = req.user.id;
+      } else {
+        let existingUser;
+
+        try {
+          existingUser = await getUserByEmail(inviteEmail);
+        } catch (error) {
+          console.error("getUserByEmail failed:", error);
+          throw error;
+        }
+
+        if (existingUser) {
+          await client.query("ROLLBACK");
+          return res
+            .status(401)
+            .json({ error: "Login required for invited email" });
+        }
+
+        try {
+          // Identity user creation cannot be part of this Postgres transaction.
+          // If later Trip DB writes fail, the new account may remain while the invite stays unaccepted.
+          const invitedUserResult = await createInvitedUser(inviteEmail);
+
+          if (!invitedUserResult.created) {
+            await client.query("ROLLBACK");
+            return res
+              .status(401)
+              .json({ error: "Login required for invited email" });
+          }
+
+          participantUserId = invitedUserResult.user.id;
+          accountCreated = true;
+        } catch (error) {
+            console.error("createInvitedUser failed:", error);
+            throw error;
+        }
+      }
+
+      await client.query(
+        `
+          INSERT INTO trip_participants (trip_id, user_id, role)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (trip_id, user_id)
+          DO UPDATE SET role = EXCLUDED.role
+        `,
+        [invite.trip_id, participantUserId, invite.role]
+      );
+
+      const acceptedInviteResult = await client.query<TripInviteRow>(
+        `
+          UPDATE trip_invites
+          SET accepted_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING id, trip_id, email, token, role, accepted_at, created_at
+        `,
+        [invite.id]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(200).json({
+        ...mapTripInvite(acceptedInviteResult.rows[0]),
+        accountCreated,
+      });
+    } catch (error) {
+      if (client) {
+        await rollbackTransaction(client);
+      }
+
+      if (error instanceof IdentityClientError) {
+        console.error("[TRIPS] Failed to process invited account:", error);
+        return res.status(502).json({ error: "Failed to process invited account" });
+      }
+
+      console.error("[TRIPS] Failed to accept trip invite:", error);
+      return res.status(500).json({ error: "Failed to accept trip invite" });
+    } finally {
+      client?.release();
+    }
+  }
+);
+
+router.use(authMiddleware);
+
 router.get("/", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -288,62 +454,6 @@ router.get("/", async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to get trips" });
   }
 });
-
-router.post(
-  "/invites/:token/accept",
-  async (req: Request<{ token: string }>, res: Response) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const { token } = req.params;
-
-    try {
-      const inviteResult = await pool.query<TripInviteRow>(
-        `
-          SELECT id, trip_id, email, token, role, accepted_at, created_at
-          FROM trip_invites
-          WHERE token = $1
-        `,
-        [token]
-      );
-
-      if (inviteResult.rowCount === 0) {
-        return res.status(404).json({ error: "Invite not found" });
-      }
-
-      const invite = inviteResult.rows[0];
-
-      if (invite.accepted_at) {
-        return res.status(409).json({ error: "Invite already accepted" });
-      }
-
-      await pool.query(
-        `
-          INSERT INTO trip_participants (trip_id, user_id, role)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (trip_id, user_id) DO NOTHING
-        `,
-        [invite.trip_id, req.user.id, invite.role]
-      );
-
-      const acceptedInviteResult = await pool.query<TripInviteRow>(
-        `
-          UPDATE trip_invites
-          SET accepted_at = CURRENT_TIMESTAMP
-          WHERE id = $1
-          RETURNING id, trip_id, email, token, role, accepted_at, created_at
-        `,
-        [invite.id]
-      );
-
-      return res.status(200).json(mapTripInvite(acceptedInviteResult.rows[0]));
-    } catch (error) {
-      console.error("[TRIPS] Failed to accept trip invite:", error);
-      return res.status(500).json({ error: "Failed to accept trip invite" });
-    }
-  }
-);
 
 router.get("/:id", async (req: Request, res: Response) => {
   if (!req.user) {
@@ -581,24 +691,73 @@ router.post(
       return res.status(400).json({ error: "role must be viewer" });
     }
 
+    const client = await pool.connect();
+
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
+      await client.query("BEGIN");
+
+      const tripResult = await client.query<OwnedTripInviteRow>(
+        "SELECT id, name FROM trips WHERE id = $1 AND created_by = $2 FOR UPDATE",
+        [tripId, req.user.id]
+      );
+      const trip = tripResult.rows[0];
+
+      if (!trip) {
+        await client.query("ROLLBACK");
         return res.status(404).json({ error: "Trip not found" });
       }
 
-      const result = await pool.query<TripInviteRow>(
+      const inviteToken = generateInviteToken();
+      const normalizedEmail = email.trim().toLowerCase();
+      const inviteRole = role ?? "viewer";
+
+      const result = await client.query<TripInviteRow>(
         `
           INSERT INTO trip_invites (trip_id, email, token, role)
           VALUES ($1, $2, $3, $4)
           RETURNING id, trip_id, email, token, role, accepted_at, created_at
         `,
-        [tripId, email.trim().toLowerCase(), generateInviteToken(), role ?? "viewer"]
+        [tripId, normalizedEmail, inviteToken, inviteRole]
       );
+
+      try {
+        await sendInvitationEmail({
+          recipientEmail: normalizedEmail,
+          inviterName: req.user.name ?? "A TripBuddy user",
+          tripName: trip.name,
+          inviteToken,
+        });
+      } catch (error) {
+        throw new InviteEmailDeliveryError(error);
+      }
+
+      await client.query("COMMIT");
 
       return res.status(201).json(mapTripInvite(result.rows[0]));
     } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error(
+          "[TRIPS] Failed to rollback trip invite transaction:",
+          rollbackError
+        );
+      }
+
+      if (error instanceof InviteEmailDeliveryError) {
+        console.error(
+          "[TRIPS] Failed to send trip invite email:",
+          error.originalError
+        );
+        return res
+          .status(502)
+          .json({ error: "Failed to send invitation email" });
+      }
+
       console.error("[TRIPS] Failed to create trip invite:", error);
       return res.status(500).json({ error: "Failed to create trip invite" });
+    } finally {
+      client.release();
     }
   }
 );

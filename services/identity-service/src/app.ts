@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
 import authRoutes from "./routes/authRoutes";
+import internalRoutes from "./routes/internalRoutes";
 import swaggerSpec from "./swagger";
 
 const app = express();
@@ -28,6 +29,7 @@ app.get("/", (_req, res) => {
   res.json({ service: "identity-service", message: "identity root works" });
 });
 
+app.use("/internal", internalRoutes);
 app.use("/", authRoutes);
 
 export default app;
