@@ -10,9 +10,28 @@ import type { AuthUser } from "./types/auth";
 import type { Trip } from "./types/trip";
 
 function getInviteTokenFromPath(pathname: string) {
-  const match = pathname.match(/^\/invites\/([^/]+)\/accept\/?$/);
+  const match =
+    pathname.match(/^\/invite\/([^/]+)\/?$/) ||
+    pathname.match(/^\/invites\/([^/]+)\/accept\/?$/);
 
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getSafeRedirect(search: string) {
+  const redirect = new URLSearchParams(search).get("redirect");
+
+  if (!redirect || !redirect.startsWith("/") || redirect.startsWith("//")) {
+    return null;
+  }
+
+  return redirect;
+}
+
+function getOpenTripId(search: string) {
+  const value = new URLSearchParams(search).get("openTrip");
+  const tripId = value ? Number(value) : NaN;
+
+  return Number.isInteger(tripId) && tripId > 0 ? tripId : null;
 }
 
 function getStoredUser() {
@@ -40,11 +59,53 @@ function App() {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [inviteToken, setInviteToken] = useState(() => getInviteTokenFromPath(window.location.pathname));
 
+  const openTripById = useCallback(async (tripId: number, authToken: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const trip = (await response.json()) as Trip;
+
+      if (!response.ok || typeof trip.id !== "number") {
+        setInviteToken(null);
+        setSelectedTrip(null);
+        window.history.pushState({}, "", "/");
+        return;
+      }
+
+      setInviteToken(null);
+      setSelectedTrip(trip);
+      window.history.pushState({}, "", "/");
+    } catch {
+      setInviteToken(null);
+      setSelectedTrip(null);
+      window.history.pushState({}, "", "/");
+    }
+  }, []);
+
   const handleLogin = (nextToken: string, user: AuthUser) => {
     localStorage.setItem("token", nextToken);
     localStorage.setItem("user", JSON.stringify(user));
     setCurrentUser(user);
     setToken(nextToken);
+
+    const redirect = getSafeRedirect(window.location.search);
+
+    if (!redirect) {
+      return;
+    }
+
+    window.history.pushState({}, "", redirect);
+    const nextInviteToken = getInviteTokenFromPath(window.location.pathname);
+    const openTripId = getOpenTripId(window.location.search);
+    setInviteToken(nextInviteToken);
+    setSelectedTrip(null);
+
+    if (!nextInviteToken && openTripId) {
+      void openTripById(openTripId, nextToken);
+    }
   };
 
   const handleLogout = useCallback(() => {
@@ -108,19 +169,38 @@ function App() {
     setSelectedTrip(null);
   };
 
+  const handleGoToLogin = (redirectPath: string) => {
+    const redirect = redirectPath.startsWith("/") && !redirectPath.startsWith("//") ? redirectPath : "/";
+
+    window.history.pushState({}, "", `/?redirect=${encodeURIComponent(redirect)}`);
+    setInviteToken(null);
+    setSelectedTrip(null);
+    setAuthPage("login");
+  };
+
+  const handleOpenAcceptedTrip = (tripId: number) => {
+    if (!token) {
+      handleGoToLogin(`/?openTrip=${tripId}`);
+      return;
+    }
+
+    void openTripById(tripId, token);
+  };
+
   return (
     <main className="app">
       {isAuthBootstrapping ? (
         <p className="loading-state">Restoring your session...</p>
+      ) : inviteToken ? (
+        <AcceptInvitePage
+          token={token}
+          inviteToken={inviteToken}
+          onBackToTrips={handleBackToTrips}
+          onGoToLogin={handleGoToLogin}
+          onOpenTrip={handleOpenAcceptedTrip}
+        />
       ) : token ? (
-        inviteToken ? (
-          <AcceptInvitePage
-            token={token}
-            inviteToken={inviteToken}
-            onBackToTrips={handleBackToTrips}
-            onUnauthorized={handleLogout}
-          />
-        ) : selectedTrip ? (
+        selectedTrip ? (
           <TripDetailsPage
             token={token}
             trip={selectedTrip}
