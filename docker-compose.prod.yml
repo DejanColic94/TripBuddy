@@ -27,6 +27,10 @@ services:
       IDENTITY_DB_USER: ${IDENTITY_DB_USER:-tripbuddy_identity_user}
       IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:-change_me}
       IDENTITY_JWT_SECRET: ${IDENTITY_JWT_SECRET:-change_me}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      FRONTEND_URL: ${FRONTEND_URL}
     depends_on:
       identity-db:
         condition: service_healthy
@@ -45,6 +49,10 @@ services:
       TRIP_DB_PASSWORD: ${TRIP_DB_PASSWORD:-change_me}
       TRIP_JWT_SECRET: ${IDENTITY_JWT_SECRET:-change_me}
       IDENTITY_SERVICE_URL: http://identity-service:4001
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      FRONTEND_URL: ${FRONTEND_URL}
     depends_on:
       trip-db:
         condition: service_healthy
