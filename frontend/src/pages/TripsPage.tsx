@@ -7,12 +7,19 @@ type TripsPageProps = {
   token: string;
   currentUser: AuthUser | null;
   onUnauthorized: () => void;
+  onOpenProfile: () => void;
   onSelectTrip: (trip: Trip) => void;
 };
 
 type CreateTripResponse = Trip | { error?: string };
 
-function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPageProps) {
+function TripsPage({
+  token,
+  currentUser,
+  onUnauthorized,
+  onOpenProfile,
+  onSelectTrip,
+}: TripsPageProps) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -117,9 +124,14 @@ function TripsPage({ token, currentUser, onUnauthorized, onSelectTrip }: TripsPa
             <p className="current-user">Signed in as <strong>{currentUser.name}</strong></p>
           ) : null}
         </div>
-        <button className="secondary-button" type="button" onClick={onUnauthorized}>
-          Logout
-        </button>
+        <div className="header-actions">
+          <button className="secondary-button" type="button" onClick={onOpenProfile}>
+            My Profile
+          </button>
+          <button className="secondary-button" type="button" onClick={onUnauthorized}>
+            Logout
+          </button>
+        </div>
       </div>
 
       <div className="trips-layout">

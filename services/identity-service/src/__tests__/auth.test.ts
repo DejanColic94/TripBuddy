@@ -102,6 +102,70 @@ describe("identity-service auth endpoints", () => {
     );
   });
 
+  it("updates the current user's name", async () => {
+    const response = await request(app)
+      .patch("/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "  Updated Traveler  " });
+
+    expect(response.status).toBe(200);
+    expect(response.body.user).toEqual(
+      expect.objectContaining({
+        name: "Updated Traveler",
+        email,
+        role: "user",
+      })
+    );
+    expect(response.body.token).toEqual(expect.any(String));
+    expect(
+      jwt.verify(
+        response.body.token,
+        process.env.IDENTITY_JWT_SECRET ?? "test_identity_secret"
+      )
+    ).toEqual(expect.objectContaining({ name: "Updated Traveler" }));
+
+    const storedUser = await pool.query(
+      "SELECT name FROM users WHERE email = $1",
+      [email]
+    );
+    expect(storedUser.rows[0].name).toBe("Updated Traveler");
+
+    await pool.query("UPDATE users SET name = $1 WHERE email = $2", [
+      name,
+      email,
+    ]);
+  });
+
+  it("rejects a blank profile name", async () => {
+    const response = await request(app)
+      .patch("/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "   " });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Name is required");
+  });
+
+  it("rejects a profile name longer than 255 characters", async () => {
+    const response = await request(app)
+      .patch("/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "a".repeat(256) });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "Name must be 255 characters or fewer"
+    );
+  });
+
+  it("rejects profile updates without authentication", async () => {
+    const response = await request(app)
+      .patch("/me")
+      .send({ name: "Unauthorized Traveler" });
+
+    expect(response.status).toBe(401);
+  });
+
   it("gets users by id with a valid token", async () => {
     const meResponse = await request(app)
       .get("/me")

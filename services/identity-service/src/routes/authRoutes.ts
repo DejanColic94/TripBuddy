@@ -6,6 +6,27 @@ import authMiddleware from "../middleware/authMiddleware";
 
 const router = Router();
 
+type AuthUser = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+};
+
+function signUserToken(user: AuthUser): string {
+  const jwtSecret = process.env.IDENTITY_JWT_SECRET;
+
+  if (!jwtSecret) {
+    throw new Error("IDENTITY_JWT_SECRET is not set");
+  }
+
+  return jwt.sign(
+    { id: user.id, name: user.name, email: user.email, role: user.role },
+    jwtSecret,
+    { expiresIn: "1h" }
+  );
+}
+
 router.get("/test", (_req, res) => {
   return res.status(200).json({
     message: "Auth routing works",
@@ -82,17 +103,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const jwtSecret = process.env.IDENTITY_JWT_SECRET;
-
-    if (!jwtSecret) {
-      throw new Error("IDENTITY_JWT_SECRET is not set");
-    }
-
-    const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role },
-      jwtSecret,
-      { expiresIn: "1h" }
-    );
+    const token = signUserToken(user);
 
     return res.status(200).json({
       message: "Login successful",
@@ -157,6 +168,56 @@ router.get("/me", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("[IDENTITY] Current user lookup failed:", error);
     return res.status(500).json({ message: "Failed to get current user" });
+  }
+});
+
+router.patch("/me", authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+
+  const { name } = req.body;
+
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return res.status(400).json({
+      message: "Name is required",
+    });
+  }
+
+  const normalizedName = name.trim();
+
+  if (normalizedName.length > 255) {
+    return res.status(400).json({
+      message: "Name must be 255 characters or fewer",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE users
+        SET name = $1
+        WHERE id = $2
+        RETURNING id, name, email, role
+      `,
+      [normalizedName, req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = result.rows[0] as AuthUser;
+
+    return res.status(200).json({
+      token: signUserToken(user),
+      user,
+    });
+  } catch (error) {
+    console.error("[IDENTITY] Profile name update failed:", error);
+    return res.status(500).json({ message: "Failed to update profile" });
   }
 });
 

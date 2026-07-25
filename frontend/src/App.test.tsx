@@ -513,6 +513,100 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
   });
 
+  it("opens the profile and displays the current user", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url) => {
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+
+    expect(screen.getByRole("heading", { name: /my profile/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/name/i)).toHaveValue("Ana Traveler");
+    expect(screen.getByLabelText(/email/i)).toHaveValue("test@example.com");
+    expect(screen.getByLabelText(/role/i)).toHaveValue("user");
+  });
+
+  it("updates the profile name and stored user", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const updatedUser = { ...authUser, name: "Ana Updated" };
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ token: "refreshed-token", user: updatedUser });
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const nameInput = screen.getByLabelText(/name/i);
+    await user.clear(nameInput);
+    await user.type(nameInput, "  Ana Updated  ");
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByText("Profile updated")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Ana Updated");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(localStorage.getItem("token")).toBe("refreshed-token");
+  });
+
+  it("shows a profile update error returned by the server", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ message: "Failed to update profile" }, 500);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByText("Failed to update profile")).toBeInTheDocument();
+  });
+
+  it("logs out when a profile update is unauthorized", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ message: "Unauthorized" }, 401);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(localStorage.getItem("token")).toBeNull();
+  });
+
   it("opens trip details and returns to trips list", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();
