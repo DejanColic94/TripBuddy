@@ -45,6 +45,9 @@ services:
       IDENTITY_DB_PASSWORD: postgres
       IDENTITY_JWT_SECRET: tripbuddy_identity_secret
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
       - ./services/identity-service:/app
       - /app/node_modules
@@ -68,6 +71,9 @@ services:
       TRIP_JWT_SECRET: tripbuddy_identity_secret
       IDENTITY_SERVICE_URL: http://identity-service:4001
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
       - ./services/trip-service:/app
       - /app/node_modules
