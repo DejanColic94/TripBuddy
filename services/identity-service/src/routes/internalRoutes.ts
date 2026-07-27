@@ -1,10 +1,8 @@
 import bcrypt from "bcrypt";
-import { randomInt } from "crypto";
 import { Router } from "express";
 import type { DatabaseError, PoolClient } from "pg";
 import pool from "../db";
 import internalServiceAuthMiddleware from "../middleware/internalServiceAuthMiddleware";
-import { sendTemporaryCredentialsEmail } from "../services/emailService";
 
 type UserLookupRow = {
   id: number;
@@ -16,66 +14,6 @@ type UserLookupRow = {
 const router = Router();
 
 router.use(internalServiceAuthMiddleware);
-
-class CredentialsEmailDeliveryError extends Error {
-  constructor(public readonly originalError: unknown) {
-    super("Failed to send temporary credentials email");
-  }
-}
-
-const uppercaseCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const lowercaseCharacters = "abcdefghijklmnopqrstuvwxyz";
-const numberCharacters = "0123456789";
-const symbolCharacters = "!@#$%^&*()-_=+[]{}";
-const passwordCharacters =
-  uppercaseCharacters + lowercaseCharacters + numberCharacters + symbolCharacters;
-
-function getRandomCharacter(characters: string): string {
-  return characters[randomInt(0, characters.length)];
-}
-
-function shuffleCharacters(characters: string[]): string[] {
-  for (let index = characters.length - 1; index > 0; index -= 1) {
-    const randomIndex = randomInt(0, index + 1);
-    [characters[index], characters[randomIndex]] = [
-      characters[randomIndex],
-      characters[index],
-    ];
-  }
-
-  return characters;
-}
-
-function generateTemporaryPassword(): string {
-  const characters = [
-    getRandomCharacter(uppercaseCharacters),
-    getRandomCharacter(lowercaseCharacters),
-    getRandomCharacter(numberCharacters),
-    getRandomCharacter(symbolCharacters),
-  ];
-
-  while (characters.length < 20) {
-    characters.push(getRandomCharacter(passwordCharacters));
-  }
-
-  return shuffleCharacters(characters).join("");
-}
-
-function deriveDisplayName(normalizedEmail: string): string {
-  const localPart = normalizedEmail.split("@")[0] ?? "";
-  const readableName = localPart
-    .replace(/[._+-]+/g, " ")
-    .replace(/[^a-z0-9 ]+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 255);
-
-  if (!readableName || !/[a-z0-9]/i.test(readableName)) {
-    return "TripBuddy Traveler";
-  }
-
-  return readableName.replace(/\b\w/g, (character) => character.toUpperCase());
-}
 
 async function rollbackTransaction(client: PoolClient): Promise<void> {
   try {
@@ -121,15 +59,40 @@ router.get("/users/by-email", async (req, res) => {
 });
 
 router.post("/users/invited", async (req, res) => {
-  const { email } = req.body;
+  const { email, name, password } = req.body;
 
   if (typeof email !== "string" || email.trim().length === 0) {
     return res.status(400).json({ error: "email is required" });
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  const displayName = deriveDisplayName(normalizedEmail);
-  const temporaryPassword = generateTemporaryPassword();
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (normalizedEmail.length > 255 || !emailPattern.test(normalizedEmail)) {
+    return res.status(400).json({ error: "email must be valid" });
+  }
+
+  if (!normalizedName) {
+    return res.status(400).json({ error: "name is required" });
+  }
+
+  if (normalizedName.length > 255) {
+    return res.status(400).json({ error: "name must be 255 characters or fewer" });
+  }
+
+  if (typeof password !== "string" || password.length < 8) {
+    return res
+      .status(400)
+      .json({ error: "password must be at least 8 characters" });
+  }
+
+  if (Buffer.byteLength(password, "utf8") > 72) {
+    return res
+      .status(400)
+      .json({ error: "password must be 72 bytes or fewer" });
+  }
+
   let client: PoolClient | undefined;
 
   try {
@@ -146,26 +109,16 @@ router.post("/users/invited", async (req, res) => {
       return res.status(409).json({ error: "User already exists" });
     }
 
-    const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
     const userResult = await client.query<UserLookupRow>(
       `
         INSERT INTO users (name, email, password, email_verified)
         VALUES ($1, $2, $3, TRUE)
         RETURNING id, name, email, role
       `,
-      [displayName, normalizedEmail, hashedPassword]
+      [normalizedName, normalizedEmail, hashedPassword]
     );
     const user = userResult.rows[0];
-
-    try {
-      await sendTemporaryCredentialsEmail({
-        recipientEmail: normalizedEmail,
-        displayName,
-        temporaryPassword,
-      });
-    } catch (error) {
-      throw new CredentialsEmailDeliveryError(error);
-    }
 
     await client.query("COMMIT");
 
@@ -186,16 +139,6 @@ router.post("/users/invited", async (req, res) => {
 
     if (dbError.code === "23505") {
       return res.status(409).json({ error: "User already exists" });
-    }
-
-    if (error instanceof CredentialsEmailDeliveryError) {
-      console.error(
-        "[IDENTITY] Failed to send temporary credentials email:",
-        error.originalError
-      );
-      return res
-        .status(502)
-        .json({ error: "Failed to send temporary credentials email" });
     }
 
     console.error("[IDENTITY] Failed to create invited user:", error);

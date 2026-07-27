@@ -586,6 +586,48 @@ describe("trip-service endpoints", () => {
     );
   });
 
+  it("previews an active invitation without exposing its token", async () => {
+    const response = await request(app).get(`/trips/invites/${inviteToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        tripId,
+        email: invitedEmail,
+        role: "viewer",
+        accountExists: true,
+      })
+    );
+    expect(response.body.tripName).toEqual(expect.any(String));
+    expect(response.body.expiresAt).toEqual(expect.any(String));
+    expect(response.body).not.toHaveProperty("token");
+  });
+
+  it("rejects expired invitations for preview and acceptance", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "expired-invite@example.com", role: "viewer" });
+    const expiredToken = inviteResponse.body.token;
+
+    await pool.query(
+      "UPDATE trip_invites SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 minute' WHERE token = $1",
+      [expiredToken]
+    );
+
+    const previewResponse = await request(app).get(
+      `/trips/invites/${expiredToken}`
+    );
+    const acceptResponse = await request(app)
+      .post(`/trips/invites/${expiredToken}/accept`)
+      .send({ name: "Expired Traveler", password: "password123" });
+
+    expect(previewResponse.status).toBe(410);
+    expect(previewResponse.body.error).toBe("Invite has expired");
+    expect(acceptResponse.status).toBe(410);
+    expect(acceptResponse.body.error).toBe("Invite has expired");
+  });
+
   it("allows unauthenticated invite acceptance route access but requires login for an existing invited account", async () => {
     const response = await request(app).post(`/trips/invites/${inviteToken}/accept`);
     const inviteState = await pool.query<{ accepted_at: string | null }>(
@@ -691,9 +733,9 @@ describe("trip-service endpoints", () => {
         role: "viewer",
       });
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "New Invitee", password: "password123" });
     const participantResult = await pool.query(
       "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
       [tripId, invitedCreatedUserId]
@@ -717,9 +759,9 @@ describe("trip-service endpoints", () => {
         role: "viewer",
       });
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "Race Traveler", password: "password123" });
     const participantResult = await pool.query(
       "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
       [tripId, raceRecoveredUserId]
@@ -748,9 +790,9 @@ describe("trip-service endpoints", () => {
       });
     failIdentityLookup = true;
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "Lookup Failure", password: "password123" });
     const inviteState = await pool.query<{ accepted_at: string | null }>(
       "SELECT accepted_at FROM trip_invites WHERE token = $1",
       [inviteResponse.body.token]
@@ -771,9 +813,9 @@ describe("trip-service endpoints", () => {
       });
     failIdentityCreate = true;
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "Create Failure", password: "password123" });
     const inviteState = await pool.query<{ accepted_at: string | null }>(
       "SELECT accepted_at FROM trip_invites WHERE token = $1",
       [inviteResponse.body.token]

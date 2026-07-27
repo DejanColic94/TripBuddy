@@ -137,7 +137,9 @@ describe("internal identity client", () => {
       } as Response;
     });
 
-    await expect(createInvitedUser("new@example.com")).resolves.toEqual({
+    await expect(
+      createInvitedUser("new@example.com", "New Traveler", "password123")
+    ).resolves.toEqual({
       user: {
         id: 2,
         name: "New Traveler",
@@ -146,7 +148,11 @@ describe("internal identity client", () => {
       },
       created: true,
     });
-    expect(JSON.parse(requestBody)).toEqual({ email: "new@example.com" });
+    expect(JSON.parse(requestBody)).toEqual({
+      email: "new@example.com",
+      name: "New Traveler",
+      password: "password123",
+    });
   });
 
   it("returns created false when invited-user creation returns 409 and lookup finds the user", async () => {
@@ -171,7 +177,13 @@ describe("internal identity client", () => {
       } as Response;
     });
 
-    await expect(createInvitedUser("existing@example.com")).resolves.toEqual({
+    await expect(
+      createInvitedUser(
+        "existing@example.com",
+        "Existing Traveler",
+        "password123"
+      )
+    ).resolves.toEqual({
       user: {
         id: 3,
         name: "Existing Traveler",
@@ -200,9 +212,9 @@ describe("internal identity client", () => {
       } as Response;
     });
 
-    await expect(createInvitedUser("race@example.com")).rejects.toThrow(
-      "Identity Service invited user conflict"
-    );
+    await expect(
+      createInvitedUser("race@example.com", "Race Traveler", "password123")
+    ).rejects.toThrow("Identity Service invited user conflict");
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 

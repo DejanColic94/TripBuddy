@@ -149,7 +149,9 @@ export async function getUserByEmail(email: string): Promise<IdentityUser | null
 }
 
 export async function createInvitedUser(
-  email: string
+  email: string,
+  name: string,
+  password: string
 ): Promise<CreateInvitedUserResult> {
   const identityServiceUrl = normalizeBaseUrl(getRequiredEnv("IDENTITY_SERVICE_URL"));
   const internalServiceSecret = getRequiredEnv("INTERNAL_SERVICE_SECRET");
@@ -161,7 +163,7 @@ export async function createInvitedUser(
         "Content-Type": "application/json",
         "X-Internal-Service-Secret": internalServiceSecret,
       },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, name, password }),
     }
   );
 

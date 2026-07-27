@@ -76,8 +76,23 @@ export async function initDb(): Promise<void> {
         token VARCHAR(255) UNIQUE NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'viewer',
         accepted_at TIMESTAMP NULL,
+        expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP
+        DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days')
+    `);
+    await pool.query(`
+      UPDATE trip_invites
+      SET expires_at = created_at + INTERVAL '7 days'
+      WHERE expires_at IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ALTER COLUMN expires_at SET NOT NULL
     `);
     console.log("[DB] Trip invites table ensured");
 
