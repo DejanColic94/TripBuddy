@@ -30,6 +30,12 @@ function ProfilePage({
   const [emailError, setEmailError] = useState("");
   const [emailSuccessMessage, setEmailSuccessMessage] = useState("");
   const [isEmailSubmitting, setIsEmailSubmitting] = useState(false);
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccessMessage, setPasswordSuccessMessage] = useState("");
+  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -151,6 +157,69 @@ function ProfilePage({
     }
   };
 
+  const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordError("");
+    setPasswordSuccessMessage("");
+
+    if (!passwordCurrent) {
+      setPasswordError("Current password is required");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters");
+      return;
+    }
+
+    if (new TextEncoder().encode(newPassword).length > 72) {
+      setPasswordError("New password must be 72 bytes or fewer");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match");
+      return;
+    }
+
+    setIsPasswordSubmitting(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me/password`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentPassword: passwordCurrent,
+          newPassword,
+        }),
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as { message?: string };
+
+      if (!response.ok) {
+        setPasswordError(data.message || "Failed to update password");
+        return;
+      }
+
+      setPasswordCurrent("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordSuccessMessage("Password updated");
+    } catch {
+      setPasswordError("Failed to update password");
+    } finally {
+      setIsPasswordSubmitting(false);
+    }
+  };
+
   return (
     <section className="page profile-page">
       <div className="page-header">
@@ -229,6 +298,63 @@ function ProfilePage({
             disabled={isEmailSubmitting}
           >
             {isEmailSubmitting ? "Changing email..." : "Change email"}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel profile-card">
+        <h2>Change password</h2>
+        <p className="page-subtitle">
+          Use at least 8 characters and confirm your current password.
+        </p>
+
+        <form className="form-stack" onSubmit={handlePasswordSubmit}>
+          <label>
+            Current password for password change
+            <input
+              type="password"
+              value={passwordCurrent}
+              onChange={(event) => setPasswordCurrent(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+
+          <label>
+            New password
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              autoComplete="new-password"
+              minLength={8}
+              required
+            />
+          </label>
+
+          <label>
+            Confirm new password
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+              minLength={8}
+              required
+            />
+          </label>
+
+          {passwordError ? <p className="error">{passwordError}</p> : null}
+          {passwordSuccessMessage ? (
+            <p className="success">{passwordSuccessMessage}</p>
+          ) : null}
+
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isPasswordSubmitting}
+          >
+            {isPasswordSubmitting ? "Changing password..." : "Change password"}
           </button>
         </form>
       </section>

@@ -636,7 +636,7 @@ describe("TripBuddy frontend", () => {
     const emailInput = screen.getByLabelText(/new email/i);
     await user.clear(emailInput);
     await user.type(emailInput, "UPDATED@EXAMPLE.COM");
-    await user.type(screen.getByLabelText(/current password/i), "password123");
+    await user.type(screen.getByLabelText(/^current password$/i), "password123");
     await user.click(screen.getByRole("button", { name: /change email/i }));
 
     expect(await screen.findByText("Email updated")).toBeInTheDocument();
@@ -674,12 +674,97 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /my profile/i }));
     await user.clear(screen.getByLabelText(/new email/i));
     await user.type(screen.getByLabelText(/new email/i), "updated@example.com");
-    await user.type(screen.getByLabelText(/current password/i), "wrong-password");
+    await user.type(
+      screen.getByLabelText(/^current password$/i),
+      "wrong-password"
+    );
     await user.click(screen.getByRole("button", { name: /change email/i }));
 
     expect(
       await screen.findByText("Current password is incorrect")
     ).toBeInTheDocument();
+  });
+
+  it("changes password and clears all password fields", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+
+        if (url.endsWith("/auth/me/password") && init?.method === "PATCH") {
+          return mockResponse({ message: "Password updated" });
+        }
+
+        if (url.endsWith("/trips")) {
+          return mockResponse([]);
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const currentPasswordInput = screen.getByLabelText(
+      /current password for password change/i
+    );
+    const newPasswordInput = screen.getByLabelText(/^new password$/i);
+    const confirmPasswordInput = screen.getByLabelText(/confirm new password/i);
+
+    await user.type(currentPasswordInput, "password123");
+    await user.type(newPasswordInput, "new-password-456");
+    await user.type(confirmPasswordInput, "new-password-456");
+    await user.click(screen.getByRole("button", { name: /^change password$/i }));
+
+    expect(await screen.findByText("Password updated")).toBeInTheDocument();
+    expect(currentPasswordInput).toHaveValue("");
+    expect(newPasswordInput).toHaveValue("");
+    expect(confirmPasswordInput).toHaveValue("");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/me/password"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword: "password123",
+          newPassword: "new-password-456",
+        }),
+      })
+    );
+  });
+
+  it("rejects mismatched new passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (input.toString().endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.type(
+      screen.getByLabelText(/current password for password change/i),
+      "password123"
+    );
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "different-password"
+    );
+    await user.click(screen.getByRole("button", { name: /^change password$/i }));
+
+    expect(await screen.findByText("New passwords do not match")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        url.toString().endsWith("/auth/me/password")
+      )
+    ).toBe(false);
   });
 
   it("opens trip details and returns to trips list", async () => {

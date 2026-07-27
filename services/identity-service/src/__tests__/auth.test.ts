@@ -263,6 +263,88 @@ describe("identity-service auth endpoints", () => {
     expect(response.status).toBe(401);
   });
 
+  it("changes password after verifying the current password", async () => {
+    const newPassword = "new-password-456";
+    const response = await request(app)
+      .patch("/me/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: password, newPassword });
+
+    expect(response.status).toBe(200);
+    expect(response.body.message).toBe("Password updated");
+
+    const loginResponse = await request(app)
+      .post("/login")
+      .send({ email, password: newPassword });
+    expect(loginResponse.status).toBe(200);
+
+    const restoreResponse = await request(app)
+      .patch("/me/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: newPassword, newPassword: password });
+    expect(restoreResponse.status).toBe(200);
+  });
+
+  it("rejects a password change when the current password is wrong", async () => {
+    const response = await request(app)
+      .patch("/me/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        currentPassword: "wrong-password",
+        newPassword: "new-password-456",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Current password is incorrect");
+  });
+
+  it("rejects a weak new password", async () => {
+    const response = await request(app)
+      .patch("/me/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: password, newPassword: "short" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "New password must be at least 8 characters"
+    );
+  });
+
+  it("rejects a new password longer than bcrypt's byte limit", async () => {
+    const response = await request(app)
+      .patch("/me/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: password, newPassword: "ž".repeat(37) });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "New password must be 72 bytes or fewer"
+    );
+  });
+
+  it("rejects reusing the current password", async () => {
+    const response = await request(app)
+      .patch("/me/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: password, newPassword: password });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "New password must be different from current password"
+    );
+  });
+
+  it("rejects password changes without authentication", async () => {
+    const response = await request(app)
+      .patch("/me/password")
+      .send({
+        currentPassword: password,
+        newPassword: "new-password-456",
+      });
+
+    expect(response.status).toBe(401);
+  });
+
   it("gets users by id with a valid token", async () => {
     const meResponse = await request(app)
       .get("/me")

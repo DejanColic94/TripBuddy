@@ -298,4 +298,63 @@ router.patch("/me/email", authMiddleware, async (req, res) => {
   }
 });
 
+router.patch("/me/password", authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+
+  if (typeof currentPassword !== "string" || currentPassword.length === 0) {
+    return res.status(400).json({ message: "Current password is required" });
+  }
+
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    return res
+      .status(400)
+      .json({ message: "New password must be at least 8 characters" });
+  }
+
+  if (Buffer.byteLength(newPassword, "utf8") > 72) {
+    return res
+      .status(400)
+      .json({ message: "New password must be 72 bytes or fewer" });
+  }
+
+  try {
+    const currentUserResult = await pool.query<{ password: string }>(
+      "SELECT password FROM users WHERE id = $1",
+      [req.user.id]
+    );
+    const currentUser = currentUserResult.rows[0];
+
+    if (!currentUser) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!(await bcrypt.compare(currentPassword, currentUser.password))) {
+      return res.status(400).json({ message: "Current password is incorrect" });
+    }
+
+    if (await bcrypt.compare(newPassword, currentUser.password)) {
+      return res
+        .status(400)
+        .json({ message: "New password must be different from current password" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+      hashedPassword,
+      req.user.id,
+    ]);
+
+    return res.status(200).json({ message: "Password updated" });
+  } catch (error) {
+    console.error("[IDENTITY] Profile password update failed:", error);
+    return res.status(500).json({ message: "Failed to update password" });
+  }
+});
+
 export default router;
