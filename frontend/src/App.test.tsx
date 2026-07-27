@@ -818,18 +818,17 @@ describe("TripBuddy frontend", () => {
     expect(localStorage.getItem("token")).toBeNull();
   });
 
-  it("changes email with the current password and stores the refreshed session", async () => {
+  it("requests email verification while keeping the current session", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();
-    const updatedUser = { ...authUser, email: "updated@example.com" };
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input.toString();
 
         if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
           return mockResponse({
-            token: "email-refreshed-token",
-            user: updatedUser,
+            message:
+              "Verification email sent. Your current email remains active until you confirm the new address",
           });
         }
 
@@ -850,10 +849,12 @@ describe("TripBuddy frontend", () => {
     await user.type(screen.getByLabelText(/^current password$/i), "password123");
     await user.click(screen.getByRole("button", { name: /change email/i }));
 
-    expect(await screen.findByText("Email updated")).toBeInTheDocument();
-    expect(emailInput).toHaveValue("updated@example.com");
-    expect(localStorage.getItem("token")).toBe("email-refreshed-token");
-    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(
+      await screen.findByText(/current email remains active/i)
+    ).toBeInTheDocument();
+    expect(emailInput).toHaveValue(authUser.email);
+    expect(localStorage.getItem("token")).toBe("test-token");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/auth/me/email"),
       expect.objectContaining({

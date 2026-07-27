@@ -28,6 +28,7 @@ export async function initDb(): Promise<void> {
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
+        pending_email VARCHAR(255) UNIQUE,
         password VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'user',
         email_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -37,6 +38,15 @@ export async function initDb(): Promise<void> {
     await pool.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS name VARCHAR(255)
+    `);
+    await pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS pending_email VARCHAR(255)
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_pending_email_unique_idx
+      ON users (pending_email)
+      WHERE pending_email IS NOT NULL
     `);
     await pool.query(`
       UPDATE users

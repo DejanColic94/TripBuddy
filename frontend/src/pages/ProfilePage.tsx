@@ -132,26 +132,21 @@ function ProfilePage({
         return;
       }
 
-      const data = (await response.json()) as ProfileResponse;
+      const data = (await response.json()) as { message?: string };
 
-      if (
-        !response.ok ||
-        !("user" in data) ||
-        !("token" in data) ||
-        typeof data.token !== "string"
-      ) {
-        setEmailError(
-          ("message" in data && data.message) || "Failed to update email"
-        );
+      if (!response.ok) {
+        setEmailError(data.message || "Failed to request email change");
         return;
       }
 
-      setEmail(data.user.email);
+      setEmail(currentUser.email);
       setCurrentPassword("");
-      onUserUpdated(data.token, data.user);
-      setEmailSuccessMessage("Email updated");
+      setEmailSuccessMessage(
+        data.message ||
+          "Verification email sent. Your current email remains active until confirmation"
+      );
     } catch {
-      setEmailError("Failed to update email");
+      setEmailError("Failed to request email change");
     } finally {
       setIsEmailSubmitting(false);
     }
@@ -262,7 +257,8 @@ function ProfilePage({
       <section className="panel profile-card">
         <h2>Change email</h2>
         <p className="page-subtitle">
-          Confirm your current password before changing your sign-in email.
+          Confirm your password, then verify the link sent to your new address.
+          Your current email stays active until verification.
         </p>
 
         <form className="form-stack" onSubmit={handleEmailSubmit}>
@@ -297,7 +293,7 @@ function ProfilePage({
             type="submit"
             disabled={isEmailSubmitting}
           >
-            {isEmailSubmitting ? "Changing email..." : "Change email"}
+            {isEmailSubmitting ? "Sending verification..." : "Change email"}
           </button>
         </form>
       </section>
