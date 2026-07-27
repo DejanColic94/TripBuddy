@@ -181,9 +181,10 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: /create account/i }));
-    await user.type(screen.getByLabelText(/^name$/i), "Ana Traveler");
-    await user.type(screen.getByLabelText(/email/i), "ana@example.com");
-    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.type(screen.getByLabelText(/^name$/i), "  Ana Traveler  ");
+    await user.type(screen.getByLabelText(/email/i), "ANA@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
     await user.click(screen.getByRole("button", { name: /^register$/i }));
 
     await waitFor(() =>
@@ -199,6 +200,24 @@ describe("TripBuddy frontend", () => {
       )
     );
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByText("User registered successfully")).toBeInTheDocument();
+  });
+
+  it("rejects mismatched registration passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(() => mockResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+    await user.type(screen.getByLabelText(/^name$/i), "Ana Traveler");
+    await user.type(screen.getByLabelText(/email/i), "ana@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "different123");
+    await user.click(screen.getByRole("button", { name: /^register$/i }));
+
+    expect(await screen.findByText("Passwords do not match")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("stores token after successful login", async () => {

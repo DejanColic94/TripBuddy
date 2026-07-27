@@ -28,7 +28,11 @@ describe("identity-service auth endpoints", () => {
   it("registers a user", async () => {
     const response = await request(app)
       .post("/register")
-      .send({ name, email, password });
+      .send({
+        name: `  ${name}  `,
+        email: `  ${email.toUpperCase()}  `,
+        password,
+      });
 
     expect(response.status).toBe(201);
     expect(response.body.user.name).toBe(name);
@@ -44,10 +48,64 @@ describe("identity-service auth endpoints", () => {
     expect(response.body.message).toBe("Name is required");
   });
 
+  it("rejects a registration name longer than 255 characters", async () => {
+    const response = await request(app)
+      .post("/register")
+      .send({
+        name: "a".repeat(256),
+        email: `long-name-${Date.now()}@example.com`,
+        password,
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "Name must be 255 characters or fewer"
+    );
+  });
+
+  it("rejects an invalid registration email", async () => {
+    const response = await request(app)
+      .post("/register")
+      .send({ name, email: "not-an-email", password });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Enter a valid email address");
+  });
+
+  it("rejects a registration password shorter than 8 characters", async () => {
+    const response = await request(app)
+      .post("/register")
+      .send({
+        name,
+        email: `short-password-${Date.now()}@example.com`,
+        password: "short",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "Password must be at least 8 characters"
+    );
+  });
+
+  it("rejects a registration password above bcrypt's byte limit", async () => {
+    const response = await request(app)
+      .post("/register")
+      .send({
+        name,
+        email: `long-password-${Date.now()}@example.com`,
+        password: "ž".repeat(37),
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "Password must be 72 bytes or fewer"
+    );
+  });
+
   it("prevents duplicate register", async () => {
     const response = await request(app)
       .post("/register")
-      .send({ name, email, password });
+      .send({ name, email: email.toUpperCase(), password });
 
     expect(response.status).toBe(409);
     expect(response.body.message).toBe("Email already exists");
@@ -56,7 +114,7 @@ describe("identity-service auth endpoints", () => {
   it("logs in a user", async () => {
     const response = await request(app)
       .post("/login")
-      .send({ email, password });
+      .send({ email: `  ${email.toUpperCase()}  `, password });
 
     expect(response.status).toBe(200);
     expect(response.body.token).toEqual(expect.any(String));
