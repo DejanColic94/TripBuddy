@@ -49,6 +49,10 @@ export async function initDb(): Promise<void> {
       ALTER TABLE users
       ALTER COLUMN name SET NOT NULL
     `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique
+      ON users (LOWER(email))
+    `);
     console.log("[DB] Users table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize identity database:", error);

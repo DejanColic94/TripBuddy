@@ -3,6 +3,7 @@ import "./App.css";
 import { API_BASE_URL } from "./config/api";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import LoginPage from "./pages/LoginPage";
+import ProfilePage from "./pages/ProfilePage";
 import RegisterPage from "./pages/RegisterPage";
 import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
@@ -56,6 +57,7 @@ function App() {
     () => Boolean(localStorage.getItem("token") && !localStorage.getItem("user"))
   );
   const [authPage, setAuthPage] = useState<"login" | "register">("login");
+  const [appPage, setAppPage] = useState<"trips" | "profile">("trips");
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [inviteToken, setInviteToken] = useState(() => getInviteTokenFromPath(window.location.pathname));
 
@@ -113,6 +115,7 @@ function App() {
     localStorage.removeItem("user");
     setCurrentUser(null);
     setSelectedTrip(null);
+    setAppPage("trips");
     setToken(null);
     setIsAuthBootstrapping(false);
   }, []);
@@ -187,6 +190,13 @@ function App() {
     void openTripById(tripId, token);
   };
 
+  const handleUserUpdated = (nextToken: string, user: AuthUser) => {
+    localStorage.setItem("token", nextToken);
+    localStorage.setItem("user", JSON.stringify(user));
+    setToken(nextToken);
+    setCurrentUser(user);
+  };
+
   return (
     <main className="app">
       {isAuthBootstrapping ? (
@@ -200,7 +210,15 @@ function App() {
           onOpenTrip={handleOpenAcceptedTrip}
         />
       ) : token ? (
-        selectedTrip ? (
+        appPage === "profile" && currentUser ? (
+          <ProfilePage
+            token={token}
+            currentUser={currentUser}
+            onBack={() => setAppPage("trips")}
+            onUnauthorized={handleLogout}
+            onUserUpdated={handleUserUpdated}
+          />
+        ) : selectedTrip ? (
           <TripDetailsPage
             token={token}
             trip={selectedTrip}
@@ -215,6 +233,7 @@ function App() {
             token={token}
             currentUser={currentUser}
             onUnauthorized={handleLogout}
+            onOpenProfile={() => setAppPage("profile")}
             onSelectTrip={setSelectedTrip}
           />
         )

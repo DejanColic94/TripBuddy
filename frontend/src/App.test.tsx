@@ -513,6 +513,260 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
   });
 
+  it("opens the profile and displays the current user", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url) => {
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+
+    expect(screen.getByRole("heading", { name: /my profile/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/name/i)).toHaveValue("Ana Traveler");
+    expect(screen.getByLabelText(/new email/i)).toHaveValue("test@example.com");
+    expect(screen.getByLabelText(/role/i)).toHaveValue("user");
+  });
+
+  it("updates the profile name and stored user", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const updatedUser = { ...authUser, name: "Ana Updated" };
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ token: "refreshed-token", user: updatedUser });
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const nameInput = screen.getByLabelText(/name/i);
+    await user.clear(nameInput);
+    await user.type(nameInput, "  Ana Updated  ");
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByText("Profile updated")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Ana Updated");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(localStorage.getItem("token")).toBe("refreshed-token");
+  });
+
+  it("shows a profile update error returned by the server", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ message: "Failed to update profile" }, 500);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByText("Failed to update profile")).toBeInTheDocument();
+  });
+
+  it("logs out when a profile update is unauthorized", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ message: "Unauthorized" }, 401);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(localStorage.getItem("token")).toBeNull();
+  });
+
+  it("changes email with the current password and stores the refreshed session", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const updatedUser = { ...authUser, email: "updated@example.com" };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+
+        if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
+          return mockResponse({
+            token: "email-refreshed-token",
+            user: updatedUser,
+          });
+        }
+
+        if (url.endsWith("/trips")) {
+          return mockResponse([]);
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const emailInput = screen.getByLabelText(/new email/i);
+    await user.clear(emailInput);
+    await user.type(emailInput, "UPDATED@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/^current password$/i), "password123");
+    await user.click(screen.getByRole("button", { name: /change email/i }));
+
+    expect(await screen.findByText("Email updated")).toBeInTheDocument();
+    expect(emailInput).toHaveValue("updated@example.com");
+    expect(localStorage.getItem("token")).toBe("email-refreshed-token");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/me/email"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          email: "updated@example.com",
+          currentPassword: "password123",
+        }),
+      })
+    );
+  });
+
+  it("shows an incorrect-password error when changing email", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
+        return mockResponse({ message: "Current password is incorrect" }, 400);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.clear(screen.getByLabelText(/new email/i));
+    await user.type(screen.getByLabelText(/new email/i), "updated@example.com");
+    await user.type(
+      screen.getByLabelText(/^current password$/i),
+      "wrong-password"
+    );
+    await user.click(screen.getByRole("button", { name: /change email/i }));
+
+    expect(
+      await screen.findByText("Current password is incorrect")
+    ).toBeInTheDocument();
+  });
+
+  it("changes password and clears all password fields", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+
+        if (url.endsWith("/auth/me/password") && init?.method === "PATCH") {
+          return mockResponse({ message: "Password updated" });
+        }
+
+        if (url.endsWith("/trips")) {
+          return mockResponse([]);
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const currentPasswordInput = screen.getByLabelText(
+      /current password for password change/i
+    );
+    const newPasswordInput = screen.getByLabelText(/^new password$/i);
+    const confirmPasswordInput = screen.getByLabelText(/confirm new password/i);
+
+    await user.type(currentPasswordInput, "password123");
+    await user.type(newPasswordInput, "new-password-456");
+    await user.type(confirmPasswordInput, "new-password-456");
+    await user.click(screen.getByRole("button", { name: /^change password$/i }));
+
+    expect(await screen.findByText("Password updated")).toBeInTheDocument();
+    expect(currentPasswordInput).toHaveValue("");
+    expect(newPasswordInput).toHaveValue("");
+    expect(confirmPasswordInput).toHaveValue("");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/me/password"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword: "password123",
+          newPassword: "new-password-456",
+        }),
+      })
+    );
+  });
+
+  it("rejects mismatched new passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (input.toString().endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.type(
+      screen.getByLabelText(/current password for password change/i),
+      "password123"
+    );
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "different-password"
+    );
+    await user.click(screen.getByRole("button", { name: /^change password$/i }));
+
+    expect(await screen.findByText("New passwords do not match")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        url.toString().endsWith("/auth/me/password")
+      )
+    ).toBe(false);
+  });
+
   it("opens trip details and returns to trips list", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();
