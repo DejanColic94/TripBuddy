@@ -4,6 +4,8 @@ import type { AuthUser } from "../types/auth";
 
 type LoginPageProps = {
   onLogin: (token: string, user: AuthUser) => void;
+  onForgotPassword: () => void;
+  notice?: string;
 };
 
 type LoginResponse = {
@@ -12,7 +14,7 @@ type LoginResponse = {
   message?: string;
 };
 
-function LoginPage({ onLogin }: LoginPageProps) {
+function LoginPage({ onLogin, onForgotPassword, notice }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -54,6 +56,8 @@ function LoginPage({ onLogin }: LoginPageProps) {
         <h2>Login</h2>
       </div>
 
+      {notice ? <p className="success">{notice}</p> : null}
+
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
           Email
@@ -79,6 +83,14 @@ function LoginPage({ onLogin }: LoginPageProps) {
           {isSubmitting ? "Logging in..." : "Login"}
         </button>
       </form>
+
+      <button
+        className="link-button auth-switch"
+        type="button"
+        onClick={onForgotPassword}
+      >
+        Forgot password?
+      </button>
 
       {error ? <p className="error">{error}</p> : null}
     </section>

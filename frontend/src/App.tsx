@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { API_BASE_URL } from "./config/api";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import LoginPage from "./pages/LoginPage";
 import ProfilePage from "./pages/ProfilePage";
 import RegisterPage from "./pages/RegisterPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
 import type { AuthUser } from "./types/auth";
@@ -14,6 +16,12 @@ function getInviteTokenFromPath(pathname: string) {
   const match =
     pathname.match(/^\/invite\/([^/]+)\/?$/) ||
     pathname.match(/^\/invites\/([^/]+)\/accept\/?$/);
+
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getPasswordResetTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/reset-password\/([^/]+)\/?$/);
 
   return match ? decodeURIComponent(match[1]) : null;
 }
@@ -56,10 +64,16 @@ function App() {
   const [isAuthBootstrapping, setIsAuthBootstrapping] = useState(
     () => Boolean(localStorage.getItem("token") && !localStorage.getItem("user"))
   );
-  const [authPage, setAuthPage] = useState<"login" | "register">("login");
+  const [authPage, setAuthPage] = useState<
+    "login" | "register" | "forgot-password"
+  >("login");
+  const [authNotice, setAuthNotice] = useState("");
   const [appPage, setAppPage] = useState<"trips" | "profile">("trips");
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [inviteToken, setInviteToken] = useState(() => getInviteTokenFromPath(window.location.pathname));
+  const [passwordResetToken, setPasswordResetToken] = useState(() =>
+    getPasswordResetTokenFromPath(window.location.pathname)
+  );
 
   const openTripById = useCallback(async (tripId: number, authToken: string) => {
     try {
@@ -197,10 +211,30 @@ function App() {
     setCurrentUser(user);
   };
 
+  const handleBackToLogin = () => {
+    window.history.pushState({}, "", "/");
+    setPasswordResetToken(null);
+    setAuthPage("login");
+  };
+
+  const handlePasswordResetSuccess = () => {
+    handleLogout();
+    window.history.pushState({}, "", "/");
+    setPasswordResetToken(null);
+    setAuthPage("login");
+    setAuthNotice("Password reset successfully. You can now log in.");
+  };
+
   return (
     <main className="app">
       {isAuthBootstrapping ? (
         <p className="loading-state">Restoring your session...</p>
+      ) : passwordResetToken !== null ? (
+        <ResetPasswordPage
+          resetToken={passwordResetToken}
+          onBackToLogin={handleBackToLogin}
+          onResetSuccess={handlePasswordResetSuccess}
+        />
       ) : inviteToken ? (
         <AcceptInvitePage
           token={token}
@@ -248,6 +282,17 @@ function App() {
             <RegisterPage onBackToLogin={() => setAuthPage("login")} />
           </div>
         </div>
+      ) : authPage === "forgot-password" ? (
+        <div className="auth-layout">
+          <div className="brand-panel">
+            <p className="eyebrow">TripBuddy</p>
+            <h1>Find your way back.</h1>
+            <p>Request a secure, time-limited link to choose a new password.</p>
+          </div>
+          <div className="auth-column">
+            <ForgotPasswordPage onBackToLogin={() => setAuthPage("login")} />
+          </div>
+        </div>
       ) : (
         <div className="auth-layout">
           <div className="brand-panel">
@@ -256,7 +301,14 @@ function App() {
             <p>Keep your next escapes organized with calm, simple trip planning.</p>
           </div>
           <div className="auth-column">
-            <LoginPage onLogin={handleLogin} />
+            <LoginPage
+              onLogin={handleLogin}
+              onForgotPassword={() => {
+                setAuthNotice("");
+                setAuthPage("forgot-password");
+              }}
+              notice={authNotice}
+            />
             <button
               className="link-button auth-switch"
               type="button"

@@ -274,6 +274,126 @@ describe("TripBuddy frontend", () => {
     expect(await screen.findByText("Invalid credentials")).toBeInTheDocument();
   });
 
+  it("requests a password reset without revealing whether the account exists", async () => {
+    const user = userEvent.setup();
+    const genericMessage =
+      "If an account exists for that email, a reset link has been sent";
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          input.toString().endsWith("/auth/forgot-password") &&
+          init?.method === "POST"
+        ) {
+          return mockResponse({ message: genericMessage });
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /forgot password/i }));
+    await user.type(screen.getByLabelText(/email/i), "TRAVELER@EXAMPLE.COM");
+    await user.click(screen.getByRole("button", { name: /send reset link/i }));
+
+    expect(await screen.findByText(genericMessage)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/forgot-password"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "traveler@example.com" }),
+      })
+    );
+  });
+
+  it("resets a password from a public reset link and returns to login", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/reset-password/reset-token-123");
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          input.toString().endsWith("/auth/reset-password") &&
+          init?.method === "POST"
+        ) {
+          return mockResponse({ message: "Password reset successfully" });
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "new-password-456"
+    );
+    await user.click(screen.getByRole("button", { name: /^reset password$/i }));
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Password reset successfully. You can now log in.")
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/reset-password"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          token: "reset-token-123",
+          newPassword: "new-password-456",
+        }),
+      })
+    );
+  });
+
+  it("shows an invalid or expired reset-link error", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/reset-password/expired-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/reset-password") && init?.method === "POST") {
+        return mockResponse(
+          { message: "Reset link is invalid or has expired" },
+          400
+        );
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "new-password-456"
+    );
+    await user.click(screen.getByRole("button", { name: /^reset password$/i }));
+
+    expect(
+      await screen.findByText("Reset link is invalid or has expired")
+    ).toBeInTheDocument();
+  });
+
+  it("rejects mismatched reset passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/reset-password/reset-token-123");
+    const fetchMock = vi.fn(() => mockResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "different-password"
+    );
+    await user.click(screen.getByRole("button", { name: /^reset password$/i }));
+
+    expect(await screen.findByText("New passwords do not match")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fetches and displays trips when token exists", async () => {
     setAuthenticatedSession();
     mockFetch((url) => {
