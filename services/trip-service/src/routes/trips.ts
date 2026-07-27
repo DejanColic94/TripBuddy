@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import type { DatabaseError, PoolClient } from "pg";
 import {
   createInvitedUser,
@@ -60,7 +60,12 @@ type TripInviteRow = {
   token: string;
   role: string;
   accepted_at: string | null;
+  expires_at?: string;
   created_at: string;
+};
+
+type TripInvitePreviewRow = TripInviteRow & {
+  trip_name: string;
 };
 
 type OwnedTripInviteRow = {
@@ -246,10 +251,200 @@ function generateInviteToken() {
   return randomBytes(32).toString("hex");
 }
 
+function hashGuestToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+router.get(
+  "/invites/:token",
+  async (req: Request<{ token: string }>, res: Response) => {
+    const token = req.params.token?.trim();
+
+    if (!token) {
+      return res.status(400).json({ error: "Invite token is required" });
+    }
+
+    try {
+      const result = await pool.query<TripInvitePreviewRow>(
+        `
+          SELECT trip_invites.id, trip_invites.trip_id, trip_invites.email,
+            trip_invites.token, trip_invites.role, trip_invites.accepted_at,
+            trip_invites.expires_at, trip_invites.created_at,
+            trips.name AS trip_name
+          FROM trip_invites
+          JOIN trips ON trips.id = trip_invites.trip_id
+          WHERE trip_invites.token = $1
+        `,
+        [token]
+      );
+      const invite = result.rows[0];
+
+      if (!invite) {
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      if (invite.accepted_at) {
+        return res.status(409).json({ error: "Invite already accepted" });
+      }
+
+      if (invite.expires_at && new Date(invite.expires_at) <= new Date()) {
+        return res.status(410).json({ error: "Invite has expired" });
+      }
+
+      const existingUser = await getUserByEmail(invite.email.trim().toLowerCase());
+
+      return res.status(200).json({
+        tripId: invite.trip_id,
+        tripName: invite.trip_name,
+        email: invite.email,
+        role: invite.role,
+        accountExists: Boolean(existingUser),
+        expiresAt: invite.expires_at,
+      });
+    } catch (error) {
+      if (error instanceof IdentityClientError) {
+        console.error("[TRIPS] Failed to inspect invited account:", error);
+        return res.status(502).json({ error: "Failed to inspect invitation" });
+      }
+
+      console.error("[TRIPS] Failed to load trip invite:", error);
+      return res.status(500).json({ error: "Failed to load trip invite" });
+    }
+  }
+);
+
+router.post(
+  "/invites/:token/guest",
+  async (
+    req: Request<{ token: string }, {}, { displayName?: unknown }>,
+    res: Response
+  ) => {
+    const token = req.params.token?.trim();
+    const displayName =
+      typeof req.body?.displayName === "string" ? req.body.displayName.trim() : "";
+
+    if (!token) return res.status(400).json({ error: "Invite token is required" });
+    if (!displayName) return res.status(400).json({ error: "Display name is required" });
+    if (displayName.length > 255) {
+      return res.status(400).json({ error: "Display name must be 255 characters or fewer" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<TripInviteRow>(
+        `SELECT id, trip_id, email, token, role, accepted_at, expires_at, created_at
+         FROM trip_invites WHERE token = $1 FOR UPDATE`,
+        [token]
+      );
+      const invite = result.rows[0];
+
+      if (!invite) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Invite not found" });
+      }
+      if (invite.accepted_at) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Invite already accepted" });
+      }
+      if (invite.expires_at && new Date(invite.expires_at) <= new Date()) {
+        await client.query("ROLLBACK");
+        return res.status(410).json({ error: "Invite has expired" });
+      }
+
+      const guestToken = randomBytes(32).toString("hex");
+      await client.query(
+        `INSERT INTO trip_guest_access
+          (trip_id, invite_id, display_name, token_hash)
+         VALUES ($1, $2, $3, $4)`,
+        [invite.trip_id, invite.id, displayName, hashGuestToken(guestToken)]
+      );
+      await client.query(
+        "UPDATE trip_invites SET accepted_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [invite.id]
+      );
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        tripId: invite.trip_id,
+        displayName,
+        guestToken,
+        expiresInDays: 30,
+      });
+    } catch (error) {
+      await rollbackTransaction(client);
+      console.error("[TRIPS] Failed to create guest access:", error);
+      return res.status(500).json({ error: "Failed to create guest access" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+router.get(
+  "/guests/:token/trip",
+  async (req: Request<{ token: string }>, res: Response) => {
+    const token = req.params.token?.trim();
+    if (!token) return res.status(400).json({ error: "Guest token is required" });
+
+    try {
+      const accessResult = await pool.query<{
+        trip_id: number;
+        display_name: string;
+        expires_at: string;
+      }>(
+        `SELECT trip_id, display_name, expires_at
+         FROM trip_guest_access
+         WHERE token_hash = $1 AND revoked_at IS NULL
+           AND expires_at > CURRENT_TIMESTAMP`,
+        [hashGuestToken(token)]
+      );
+      const access = accessResult.rows[0];
+      if (!access) {
+        return res.status(404).json({ error: "Guest access is invalid or has expired" });
+      }
+
+      const [tripResult, itineraryResult, expensesResult] = await Promise.all([
+        pool.query<TripRow>(
+          `SELECT id, name, description, destination, start_date, end_date,
+            created_by, created_at FROM trips WHERE id = $1`,
+          [access.trip_id]
+        ),
+        pool.query<ItineraryItemRow>(
+          `SELECT id, trip_id, title, description, scheduled_date, created_at
+           FROM itinerary_items WHERE trip_id = $1 ORDER BY scheduled_date, created_at`,
+          [access.trip_id]
+        ),
+        pool.query<ExpenseRow>(
+          `SELECT id, trip_id, title, amount, currency, category, created_at
+           FROM expenses WHERE trip_id = $1 ORDER BY created_at`,
+          [access.trip_id]
+        ),
+      ]);
+      const trip = tripResult.rows[0];
+      if (!trip) return res.status(404).json({ error: "Trip not found" });
+
+      return res.status(200).json({
+        guest: { displayName: access.display_name, expiresAt: access.expires_at },
+        trip: mapTrip(trip),
+        itinerary: itineraryResult.rows.map(mapItineraryItem),
+        expenses: expensesResult.rows.map(mapExpense),
+        permissions: { readOnly: true },
+      });
+    } catch (error) {
+      console.error("[TRIPS] Failed to load guest trip:", error);
+      return res.status(500).json({ error: "Failed to load guest trip" });
+    }
+  }
+);
+
 router.post(
   "/invites/:token/accept",
   optionalAuthMiddleware,
-  async (req: Request<{ token: string }>, res: Response) => {
+  async (
+    req: Request<{ token: string }, {}, { name?: unknown; password?: unknown }>,
+    res: Response
+  ) => {
     const { token } = req.params;
 
     if (typeof token !== "string" || token.trim().length === 0) {
@@ -265,7 +460,7 @@ router.post(
 
       const inviteResult = await client.query<TripInviteRow>(
         `
-          SELECT id, trip_id, email, token, role, accepted_at, created_at
+          SELECT id, trip_id, email, token, role, accepted_at, expires_at, created_at
           FROM trip_invites
           WHERE token = $1
           FOR UPDATE
@@ -283,6 +478,11 @@ router.post(
       if (invite.accepted_at) {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "Invite already accepted" });
+      }
+
+      if (invite.expires_at && new Date(invite.expires_at) <= new Date()) {
+        await client.query("ROLLBACK");
+        return res.status(410).json({ error: "Invite has expired" });
       }
 
       const inviteEmail = invite.email.trim().toLowerCase();
@@ -323,10 +523,45 @@ router.post(
             .json({ error: "Login required for invited email" });
         }
 
+        const name =
+          typeof req.body?.name === "string" ? req.body.name.trim() : "";
+        const password =
+          typeof req.body?.password === "string" ? req.body.password : "";
+
+        if (!name) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Name is required" });
+        }
+
+        if (name.length > 255) {
+          await client.query("ROLLBACK");
+          return res
+            .status(400)
+            .json({ error: "Name must be 255 characters or fewer" });
+        }
+
+        if (password.length < 8) {
+          await client.query("ROLLBACK");
+          return res
+            .status(400)
+            .json({ error: "Password must be at least 8 characters" });
+        }
+
+        if (Buffer.byteLength(password, "utf8") > 72) {
+          await client.query("ROLLBACK");
+          return res
+            .status(400)
+            .json({ error: "Password must be 72 bytes or fewer" });
+        }
+
         try {
           // Identity user creation cannot be part of this Postgres transaction.
           // If later Trip DB writes fail, the new account may remain while the invite stays unaccepted.
-          const invitedUserResult = await createInvitedUser(inviteEmail);
+          const invitedUserResult = await createInvitedUser(
+            inviteEmail,
+            name,
+            password
+          );
 
           if (!invitedUserResult.created) {
             await client.query("ROLLBACK");
@@ -388,6 +623,41 @@ router.post(
 );
 
 router.use(authMiddleware);
+
+router.delete(
+  "/:tripId/guests/:guestId",
+  async (
+    req: Request<{ tripId: string; guestId: string }>,
+    res: Response
+  ) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const tripId = Number(req.params.tripId);
+    const guestId = Number(req.params.guestId);
+    if (!Number.isInteger(tripId) || !Number.isInteger(guestId)) {
+      return res.status(400).json({ error: "Invalid guest access id" });
+    }
+
+    try {
+      if (!(await userOwnsTrip(tripId, req.user.id))) {
+        return res.status(404).json({ error: "Trip not found" });
+      }
+      const result = await pool.query(
+        `UPDATE trip_guest_access
+         SET revoked_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND trip_id = $2 AND revoked_at IS NULL
+         RETURNING id`,
+        [guestId, tripId]
+      );
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Guest access not found" });
+      }
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to revoke guest access:", error);
+      return res.status(500).json({ error: "Failed to revoke guest access" });
+    }
+  }
+);
 
 router.get("/", async (req: Request, res: Response) => {
   if (!req.user) {
@@ -687,6 +957,13 @@ router.post(
       return res.status(400).json({ error: "email is required" });
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (normalizedEmail.length > 255 || !emailPattern.test(normalizedEmail)) {
+      return res.status(400).json({ error: "email must be valid" });
+    }
+
     if (role !== undefined && role !== "viewer") {
       return res.status(400).json({ error: "role must be viewer" });
     }
@@ -708,7 +985,6 @@ router.post(
       }
 
       const inviteToken = generateInviteToken();
-      const normalizedEmail = email.trim().toLowerCase();
       const inviteRole = role ?? "viewer";
 
       const result = await client.query<TripInviteRow>(

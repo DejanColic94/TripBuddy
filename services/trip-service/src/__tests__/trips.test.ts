@@ -586,6 +586,83 @@ describe("trip-service endpoints", () => {
     );
   });
 
+  it("previews an active invitation without exposing its token", async () => {
+    const response = await request(app).get(`/trips/invites/${inviteToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        tripId,
+        email: invitedEmail,
+        role: "viewer",
+        accountExists: true,
+      })
+    );
+    expect(response.body.tripName).toEqual(expect.any(String));
+    expect(response.body.expiresAt).toEqual(expect.any(String));
+    expect(response.body).not.toHaveProperty("token");
+  });
+
+  it("rejects expired invitations for preview and acceptance", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "expired-invite@example.com", role: "viewer" });
+    const expiredToken = inviteResponse.body.token;
+
+    await pool.query(
+      "UPDATE trip_invites SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 minute' WHERE token = $1",
+      [expiredToken]
+    );
+
+    const previewResponse = await request(app).get(
+      `/trips/invites/${expiredToken}`
+    );
+    const acceptResponse = await request(app)
+      .post(`/trips/invites/${expiredToken}/accept`)
+      .send({ name: "Expired Traveler", password: "password123" });
+
+    expect(previewResponse.status).toBe(410);
+    expect(previewResponse.body.error).toBe("Invite has expired");
+    expect(acceptResponse.status).toBe(410);
+    expect(acceptResponse.body.error).toBe("Invite has expired");
+  });
+
+  it("creates revocable read-only guest access without storing the raw token", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "guest-access@example.com", role: "viewer" });
+    const guestResponse = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/guest`)
+      .send({ displayName: "Guest Traveler" });
+
+    expect(guestResponse.status).toBe(201);
+    expect(guestResponse.body.guestToken).toEqual(expect.any(String));
+
+    const storedAccess = await pool.query<{ id: number; token_hash: string }>(
+      "SELECT id, token_hash FROM trip_guest_access WHERE invite_id = $1",
+      [inviteResponse.body.id]
+    );
+    expect(storedAccess.rows[0].token_hash).not.toBe(guestResponse.body.guestToken);
+
+    const tripResponse = await request(app).get(
+      `/trips/guests/${guestResponse.body.guestToken}/trip`
+    );
+    expect(tripResponse.status).toBe(200);
+    expect(tripResponse.body.guest.displayName).toBe("Guest Traveler");
+    expect(tripResponse.body.permissions).toEqual({ readOnly: true });
+
+    const revokeResponse = await request(app)
+      .delete(`/trips/${tripId}/guests/${storedAccess.rows[0].id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(revokeResponse.status).toBe(204);
+    const revokedResponse = await request(app).get(
+      `/trips/guests/${guestResponse.body.guestToken}/trip`
+    );
+    expect(revokedResponse.status).toBe(404);
+  });
+
   it("allows unauthenticated invite acceptance route access but requires login for an existing invited account", async () => {
     const response = await request(app).post(`/trips/invites/${inviteToken}/accept`);
     const inviteState = await pool.query<{ accepted_at: string | null }>(
@@ -691,9 +768,9 @@ describe("trip-service endpoints", () => {
         role: "viewer",
       });
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "New Invitee", password: "password123" });
     const participantResult = await pool.query(
       "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
       [tripId, invitedCreatedUserId]
@@ -717,9 +794,9 @@ describe("trip-service endpoints", () => {
         role: "viewer",
       });
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "Race Traveler", password: "password123" });
     const participantResult = await pool.query(
       "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
       [tripId, raceRecoveredUserId]
@@ -748,9 +825,9 @@ describe("trip-service endpoints", () => {
       });
     failIdentityLookup = true;
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "Lookup Failure", password: "password123" });
     const inviteState = await pool.query<{ accepted_at: string | null }>(
       "SELECT accepted_at FROM trip_invites WHERE token = $1",
       [inviteResponse.body.token]
@@ -771,9 +848,9 @@ describe("trip-service endpoints", () => {
       });
     failIdentityCreate = true;
 
-    const response = await request(app).post(
-      `/trips/invites/${inviteResponse.body.token}/accept`
-    );
+    const response = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/accept`)
+      .send({ name: "Create Failure", password: "password123" });
     const inviteState = await pool.query<{ accepted_at: string | null }>(
       "SELECT accepted_at FROM trip_invites WHERE token = $1",
       [inviteResponse.body.token]

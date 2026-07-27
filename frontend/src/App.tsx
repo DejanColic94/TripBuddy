@@ -3,6 +3,7 @@ import "./App.css";
 import { API_BASE_URL } from "./config/api";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import GuestTripPage from "./pages/GuestTripPage";
 import LoginPage from "./pages/LoginPage";
 import ProfilePage from "./pages/ProfilePage";
 import RegisterPage from "./pages/RegisterPage";
@@ -30,6 +31,11 @@ function getPasswordResetTokenFromPath(pathname: string) {
 
 function getVerificationTokenFromPath(pathname: string) {
   const match = pathname.match(/^\/verify-email\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getGuestTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/guest\/([^/]+)\/?$/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -85,6 +91,9 @@ function App() {
     getVerificationTokenFromPath(window.location.pathname)
   );
   const [verificationEmail, setVerificationEmail] = useState("");
+  const [guestToken, setGuestToken] = useState(() =>
+    getGuestTokenFromPath(window.location.pathname)
+  );
 
   const openTripById = useCallback(async (tripId: number, authToken: string) => {
     try {
@@ -201,6 +210,7 @@ function App() {
   const handleGoToLogin = (redirectPath: string) => {
     const redirect = redirectPath.startsWith("/") && !redirectPath.startsWith("//") ? redirectPath : "/";
 
+    handleLogout();
     window.history.pushState({}, "", `/?redirect=${encodeURIComponent(redirect)}`);
     setInviteToken(null);
     setSelectedTrip(null);
@@ -249,6 +259,14 @@ function App() {
     <main className="app">
       {isAuthBootstrapping ? (
         <p className="loading-state">Restoring your session...</p>
+      ) : guestToken !== null ? (
+        <GuestTripPage
+          guestToken={guestToken}
+          onExit={() => {
+            window.history.pushState({}, "", "/");
+            setGuestToken(null);
+          }}
+        />
       ) : verificationToken !== null ? (
         <div className="auth-layout">
           <div className="brand-panel">
@@ -276,6 +294,15 @@ function App() {
           onBackToTrips={handleBackToTrips}
           onGoToLogin={handleGoToLogin}
           onOpenTrip={handleOpenAcceptedTrip}
+          onOpenGuestTrip={(newGuestToken) => {
+            window.history.pushState(
+              {},
+              "",
+              `/guest/${encodeURIComponent(newGuestToken)}`
+            );
+            setInviteToken(null);
+            setGuestToken(newGuestToken);
+          }}
         />
       ) : token ? (
         appPage === "profile" && currentUser ? (

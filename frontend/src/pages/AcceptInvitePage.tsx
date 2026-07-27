@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import {
   ApiRequestError,
   acceptTripInvite,
+  continueAsGuest,
+  fetchTripInvitePreview,
   type AcceptTripInviteResponse,
+  type TripInvitePreview,
 } from "../api/invites";
 
 type AcceptInvitePageProps = {
@@ -11,88 +14,39 @@ type AcceptInvitePageProps = {
   onBackToTrips: () => void;
   onGoToLogin: (redirectPath: string) => void;
   onOpenTrip: (tripId: number) => void;
+  onOpenGuestTrip: (guestToken: string) => void;
 };
 
 type InviteStatus =
   | { kind: "loading" }
+  | { kind: "ready"; invite: TripInvitePreview }
   | { kind: "success"; invite: AcceptTripInviteResponse }
   | { kind: "error"; status: number; message: string };
 
-const acceptRequestCache = new Map<string, Promise<AcceptTripInviteResponse>>();
-
-function getAcceptRequest(
-  key: string,
-  inviteToken: string,
-  token: string | null
-) {
-  const cachedRequest = acceptRequestCache.get(key);
-
-  if (cachedRequest) {
-    return cachedRequest;
-  }
-
-  const request = acceptTripInvite(inviteToken, token);
-  acceptRequestCache.set(key, request);
-
-  return request;
-}
-
 function getInviteErrorTitle(status: number, message: string) {
-  if (status === 401) {
-    return "Login required for invited email";
-  }
-
+  if (status === 401) return "Login required for invited email";
   if (status === 403 && message === "Invite belongs to a different email") {
     return "Signed into a different account";
   }
-
-  if (status === 403) {
-    return "Account verification needed";
-  }
-
-  if (status === 404) {
-    return "Invitation not found";
-  }
-
-  if (status === 409) {
-    return "Invitation already accepted";
-  }
-
-  if (status === 502) {
-    return "Invitation service is temporarily unavailable";
-  }
-
+  if (status === 404) return "Invitation not found";
+  if (status === 409) return "Invitation already accepted";
+  if (status === 410) return "Invitation expired";
+  if (status === 502) return "Invitation service is temporarily unavailable";
   return "Unable to accept invitation";
 }
 
-function getInviteErrorMessage(status: number, message: string, isLoggedIn: boolean) {
+function getInviteErrorMessage(status: number, message: string) {
   if (status === 401) {
-    return "An account already exists for this email. Log in with that account to accept the invitation.";
+    return "An account now exists for this email. Log in with that account to accept the invitation.";
   }
-
   if (status === 403 && message === "Invite belongs to a different email") {
-    return "This invitation was sent to a different email address. Use the invited account to accept it.";
+    return "This invitation was sent to a different email address. Log in with the invited account.";
   }
-
-  if (status === 403) {
-    return "We could not confirm the email address for your signed-in account. Please log in again.";
-  }
-
-  if (status === 404) {
-    return "The link may be invalid or no longer available.";
-  }
-
-  if (status === 409) {
-    return isLoggedIn
-      ? "This invitation has already been accepted. You can continue to your dashboard."
-      : "This invitation has already been accepted. Log in to view your trips.";
-  }
-
-  if (status === 502) {
-    return "We could not finish setting up the invited account right now. Please try again.";
-  }
-
-  return "Something went wrong while accepting this invitation. Please try again.";
+  if (status === 404) return "The link is invalid or no longer available.";
+  if (status === 409) return "This invitation has already been used.";
+  if (status === 410) return "Ask the trip owner to send you a new invitation.";
+  if (status === 502) return "Please try again in a moment.";
+  return message || "Something went wrong while processing this invitation.";
 }
 
 function AcceptInvitePage({
@@ -101,68 +55,117 @@ function AcceptInvitePage({
   onBackToTrips,
   onGoToLogin,
   onOpenTrip,
+  onOpenGuestTrip,
 }: AcceptInvitePageProps) {
-  const [retryCount, setRetryCount] = useState(0);
   const [status, setStatus] = useState<InviteStatus>({ kind: "loading" });
-  const isLoggedIn = Boolean(token);
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [formError, setFormError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [guestName, setGuestName] = useState("");
   const trimmedInviteToken = inviteToken.trim();
   const currentInvitePath = `/invite/${encodeURIComponent(trimmedInviteToken)}`;
-  const requestKey = useMemo(
-    () => `${trimmedInviteToken}:${token ?? "anonymous"}:${retryCount}`,
-    [retryCount, token, trimmedInviteToken]
-  );
 
   useEffect(() => {
-    if (!trimmedInviteToken) {
-      setStatus({ kind: "error", status: 400, message: "Invalid invitation link" });
-      return;
-    }
+    let active = true;
 
-    let isMounted = true;
+    async function loadPreview() {
+      if (!trimmedInviteToken) {
+        setStatus({ kind: "error", status: 400, message: "Invalid invitation link" });
+        return;
+      }
 
-    async function acceptInvite() {
       setStatus({ kind: "loading" });
-
       try {
-        const invite = await getAcceptRequest(requestKey, trimmedInviteToken, token);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setStatus({ kind: "success", invite });
+        const invite = await fetchTripInvitePreview(trimmedInviteToken);
+        if (active) setStatus({ kind: "ready", invite });
       } catch (error) {
-        if (isMounted) {
-          if (error instanceof ApiRequestError) {
-            setStatus({ kind: "error", status: error.status, message: error.error });
-          } else {
-            setStatus({
-              kind: "error",
-              status: 500,
-              message: "Failed to accept trip invite",
-            });
-          }
+        if (!active) return;
+        if (error instanceof ApiRequestError) {
+          setStatus({ kind: "error", status: error.status, message: error.error });
+        } else {
+          setStatus({ kind: "error", status: 500, message: "Failed to load invitation" });
         }
       }
     }
 
-    void acceptInvite();
-
+    void loadPreview();
     return () => {
-      isMounted = false;
+      active = false;
     };
-  }, [requestKey, token, trimmedInviteToken]);
+  }, [trimmedInviteToken]);
 
-  const handleRetry = () => {
-    setRetryCount((current) => current + 1);
+  const accept = async (account?: { name: string; password: string }) => {
+    setFormError("");
+    setIsSubmitting(true);
+    try {
+      const acceptedInvite = await acceptTripInvite(
+        trimmedInviteToken,
+        token,
+        account
+      );
+      setStatus({ kind: "success", invite: acceptedInvite });
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        setStatus({ kind: "error", status: error.status, message: error.error });
+      } else {
+        setStatus({ kind: "error", status: 500, message: "Failed to accept invitation" });
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleLoginForInvite = () => {
-    onGoToLogin(currentInvitePath);
+  const handleCreateAccount = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedName = name.trim();
+
+    if (!normalizedName) {
+      setFormError("Name is required");
+      return;
+    }
+    if (normalizedName.length > 255) {
+      setFormError("Name must be 255 characters or fewer");
+      return;
+    }
+    if (password.length < 8) {
+      setFormError("Password must be at least 8 characters");
+      return;
+    }
+    if (new TextEncoder().encode(password).length > 72) {
+      setFormError("Password must be 72 bytes or fewer");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setFormError("Passwords do not match");
+      return;
+    }
+
+    await accept({ name: normalizedName, password });
   };
 
-  const handleLoginForTrip = (tripId: number) => {
-    onGoToLogin(`/?openTrip=${tripId}`);
+  const handleGuestSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedName = guestName.trim();
+    if (!normalizedName) {
+      setFormError("Display name is required");
+      return;
+    }
+    setFormError("");
+    setIsSubmitting(true);
+    try {
+      const guestAccess = await continueAsGuest(trimmedInviteToken, normalizedName);
+      onOpenGuestTrip(guestAccess.guestToken);
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        setStatus({ kind: "error", status: error.status, message: error.error });
+      } else {
+        setStatus({ kind: "error", status: 500, message: "Failed to continue as guest" });
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -171,46 +174,130 @@ function AcceptInvitePage({
         <div className="brand-panel">
           <p className="eyebrow">TripBuddy invite</p>
           <h1>Join the trip.</h1>
-          <p>Accept your invitation and the shared plan will appear with your trips.</p>
+          <p>Review the invitation, then choose how you want to continue.</p>
         </div>
 
         <section className="auth-card invite-accept-card">
-          <h2>Trip invite</h2>
+          <h2>Trip invitation</h2>
+
           {status.kind === "loading" ? (
-            <p className="loading-state">Accepting your TripBuddy invitation...</p>
+            <p className="loading-state">Loading your invitation...</p>
           ) : null}
 
-          {status.kind === "success" && !status.invite.accountCreated ? (
+          {status.kind === "ready" ? (
             <>
-              <div className="success">
-                <strong>Invitation accepted</strong>
-                <p>This trip was added to your account.</p>
+              <div className="invite-summary">
+                <strong>{status.invite.tripName}</strong>
+                <p>Invited email: {status.invite.email}</p>
+                <p>Trip role: {status.invite.role}</p>
               </div>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => onOpenTrip(status.invite.tripId)}
-              >
-                Open accepted trip
-              </button>
+
+              {token ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => void accept()}
+                >
+                  {isSubmitting ? "Accepting..." : "Accept invitation"}
+                </button>
+              ) : status.invite.accountExists ? (
+                <>
+                  <p>An account already exists for this email.</p>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => onGoToLogin(currentInvitePath)}
+                  >
+                    Log in to accept invitation
+                  </button>
+                </>
+              ) : (
+                <form className="form-stack" onSubmit={handleCreateAccount}>
+                  <p>Create your account to join this trip.</p>
+                  <label>
+                    Name
+                    <input
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      autoComplete="name"
+                      maxLength={255}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Email
+                    <input value={status.invite.email} readOnly />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Confirm password
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                    />
+                  </label>
+                  {formError ? <p className="error">{formError}</p> : null}
+                  <button className="primary-button" type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Creating account..." : "Create account and join"}
+                  </button>
+                </form>
+              )}
+              {!token && !status.invite.accountExists ? (
+                <form className="form-stack" onSubmit={handleGuestSubmit}>
+                  <p>Or continue with read-only guest access.</p>
+                  <label>
+                    Guest display name
+                    <input
+                      value={guestName}
+                      onChange={(event) => setGuestName(event.target.value)}
+                      maxLength={255}
+                      required
+                    />
+                  </label>
+                  {formError ? <p className="error">{formError}</p> : null}
+                  <button className="secondary-button" type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Opening trip..." : "Continue as guest"}
+                  </button>
+                </form>
+              ) : null}
             </>
           ) : null}
 
-          {status.kind === "success" && status.invite.accountCreated ? (
+          {status.kind === "success" ? (
             <>
               <div className="success">
-                <strong>Your TripBuddy account has been created</strong>
-                <p>
-                  Temporary login credentials were sent to {status.invite.email}. Use them to log in,
-                  then change the temporary password after login.
-                </p>
+                <strong>
+                  {status.invite.accountCreated
+                    ? "Account created and invitation accepted"
+                    : "Invitation accepted"}
+                </strong>
+                <p>This trip is now connected to your account.</p>
               </div>
               <button
                 className="primary-button"
                 type="button"
-                onClick={() => handleLoginForTrip(status.invite.tripId)}
+                onClick={
+                  status.invite.accountCreated
+                    ? () => onGoToLogin(`/?openTrip=${status.invite.tripId}`)
+                    : () => onOpenTrip(status.invite.tripId)
+                }
               >
-                Go to login
+                {status.invite.accountCreated ? "Log in and open trip" : "Open accepted trip"}
               </button>
             </>
           ) : null}
@@ -219,44 +306,21 @@ function AcceptInvitePage({
             <>
               <div className="error">
                 <strong>{getInviteErrorTitle(status.status, status.message)}</strong>
-                <p>{getInviteErrorMessage(status.status, status.message, isLoggedIn)}</p>
+                <p>{getInviteErrorMessage(status.status, status.message)}</p>
               </div>
-
-              {status.status === 401 ? (
-                <button className="primary-button" type="button" onClick={handleLoginForInvite}>
-                  Log in to accept invitation
+              {status.status === 401 || status.status === 403 ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => onGoToLogin(currentInvitePath)}
+                >
+                  Log in with invited account
                 </button>
-              ) : null}
-
-              {status.status === 403 ? (
-                <button className="secondary-button" type="button" onClick={onBackToTrips}>
-                  Back to dashboard
-                </button>
-              ) : null}
-
-              {status.status === 404 ? (
+              ) : (
                 <button className="secondary-button" type="button" onClick={onBackToTrips}>
                   Back to home
                 </button>
-              ) : null}
-
-              {status.status === 409 ? (
-                isLoggedIn ? (
-                  <button className="secondary-button" type="button" onClick={onBackToTrips}>
-                    Open dashboard
-                  </button>
-                ) : (
-                  <button className="primary-button" type="button" onClick={handleLoginForInvite}>
-                    Go to login
-                  </button>
-                )
-              ) : null}
-
-              {status.status === 500 || status.status === 502 ? (
-                <button className="primary-button" type="button" onClick={handleRetry}>
-                  Retry
-                </button>
-              ) : null}
+              )}
             </>
           ) : null}
         </section>

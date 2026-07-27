@@ -1,6 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Trip } from "./types/trip";
@@ -1291,12 +1290,23 @@ describe("TripBuddy frontend", () => {
     expect(await screen.findByText("Participant already exists")).toBeInTheDocument();
   });
 
-  it("shows success when accepting an invite", async () => {
+  it("previews and accepts an invite for the signed-in account", async () => {
+    const user = userEvent.setup();
     setAuthenticatedSession();
     window.history.pushState({}, "", "/invite/invite-token-123");
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
+      if (url.endsWith("/trips/invites/invite-token-123") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "friend@example.com",
+          role: "viewer",
+          accountExists: true,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/invite-token-123/accept") && init?.method === "POST") {
         return mockResponse(acceptedInvite);
       }
@@ -1307,8 +1317,9 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
+    expect(await screen.findByText("Lisbon Spring")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept invitation" }));
     expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
-    expect(screen.getByText("This trip was added to your account.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open accepted trip/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/trips/invites/invite-token-123/accept"),
@@ -1318,10 +1329,21 @@ describe("TripBuddy frontend", () => {
     );
   });
 
-  it("accepts a public invite without an Authorization header when logged out", async () => {
+  it("creates an account with explicit details for a new invited email", async () => {
+    const user = userEvent.setup();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
+      if (url.endsWith("/trips/invites/public-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "friend@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/public-token/accept") && init?.method === "POST") {
         return mockResponse({
           ...acceptedInvite,
@@ -1337,47 +1359,79 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Your TripBuddy account has been created")).toBeInTheDocument();
-    expect(screen.getByText(/Temporary login credentials were sent to friend@example.com/)).toBeInTheDocument();
-    expect(screen.queryByText(/password123/i)).not.toBeInTheDocument();
+    await user.type(await screen.findByLabelText(/^name$/i), "New Traveler");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /create account and join/i }));
+
+    expect(
+      await screen.findByText("Account created and invitation accepted")
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/trips/invites/public-token/accept"),
-      expect.objectContaining({ headers: {} })
+      expect.objectContaining({
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "New Traveler",
+          password: "password123",
+        }),
+      })
     );
   });
 
-  it("does not duplicate invite acceptance during Strict Mode remount", async () => {
-    setAuthenticatedSession();
-    window.history.pushState({}, "", "/invite/strict-token");
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = input.toString();
-
-      if (url.endsWith("/trips/invites/strict-token/accept") && init?.method === "POST") {
-        return mockResponse({ ...acceptedInvite, token: "strict-token" });
+  it("opens a trip with read-only guest access", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/guest-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/guest-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "guest@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
       }
-
+      if (url.endsWith("/trips/invites/guest-token/guest") && init?.method === "POST") {
+        return mockResponse({
+          tripId: 1,
+          displayName: "Guest Traveler",
+          guestToken: "guest-access-token",
+          expiresInDays: 30,
+        }, 201);
+      }
+      if (url.endsWith("/trips/guests/guest-access-token/trip")) {
+        return mockResponse({
+          guest: { displayName: "Guest Traveler", expiresAt: "2030-01-01" },
+          trip: {
+            name: "Lisbon Spring",
+            description: "Shared plan",
+            destination: "Lisbon",
+            startDate: null,
+            endDate: null,
+          },
+          itinerary: [],
+          expenses: [],
+          permissions: { readOnly: true },
+        });
+      }
       return mockResponse({});
     });
-    vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <StrictMode>
-        <App />
-      </StrictMode>
-    );
+    render(<App />);
+    await user.type(await screen.findByLabelText(/guest display name/i), "Guest Traveler");
+    await user.click(screen.getByRole("button", { name: /continue as guest/i }));
 
-    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
-    const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
-      url.toString().endsWith("/trips/invites/strict-token/accept")
-    );
-    expect(acceptCalls).toHaveLength(1);
+    expect(await screen.findByText("Read-only guest access")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Lisbon Spring" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/guest/guest-access-token");
   });
 
   it("shows an error for an invalid invite", async () => {
-    setAuthenticatedSession();
     window.history.pushState({}, "", "/invite/bad-token");
     mockFetch((url, init) => {
-      if (url.endsWith("/trips/invites/bad-token/accept") && init?.method === "POST") {
+      if (url.endsWith("/trips/invites/bad-token") && !init?.method) {
         return mockResponse({ error: "Invite not found" }, 404);
       }
 
@@ -1387,15 +1441,14 @@ describe("TripBuddy frontend", () => {
     render(<App />);
 
     expect(await screen.findByText("Invitation not found")).toBeInTheDocument();
-    expect(screen.getByText("The link may be invalid or no longer available.")).toBeInTheDocument();
+    expect(screen.getByText("The link is invalid or no longer available.")).toBeInTheDocument();
   });
 
-  it("shows an error for an already accepted invite", async () => {
-    setAuthenticatedSession();
-    window.history.pushState({}, "", "/invites/used-token/accept");
+  it("shows an expired invitation error", async () => {
+    window.history.pushState({}, "", "/invites/expired-token/accept");
     mockFetch((url, init) => {
-      if (url.endsWith("/trips/invites/used-token/accept") && init?.method === "POST") {
-        return mockResponse({ error: "Invite already accepted" }, 409);
+      if (url.endsWith("/trips/invites/expired-token") && !init?.method) {
+        return mockResponse({ error: "Invite has expired" }, 410);
       }
 
       return mockResponse({});
@@ -1403,7 +1456,8 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Invitation already accepted")).toBeInTheDocument();
+    expect(await screen.findByText("Invitation expired")).toBeInTheDocument();
+    expect(screen.getByText(/ask the trip owner/i)).toBeInTheDocument();
   });
 
   it("does not call the API for a blank invite token", async () => {
@@ -1423,14 +1477,18 @@ describe("TripBuddy frontend", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
+      if (url.endsWith("/trips/invites/existing-account-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "test@example.com",
+          role: "viewer",
+          accountExists: true,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/existing-account-token/accept") && init?.method === "POST") {
-        const headers = init.headers as Record<string, string>;
-
-        if (headers.Authorization === "Bearer test-token") {
-          return mockResponse({ ...acceptedInvite, token: "existing-account-token" });
-        }
-
-        return mockResponse({ error: "Login required for invited email" }, 401);
+        return mockResponse({ ...acceptedInvite, token: "existing-account-token" });
       }
 
       if (url.endsWith("/auth/login") && init?.method === "POST") {
@@ -1447,17 +1505,28 @@ describe("TripBuddy frontend", () => {
     await user.type(screen.getByLabelText(/password/i), "password123");
     await user.click(screen.getByRole("button", { name: "Login" }));
 
+    await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
     expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
     const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
       url.toString().endsWith("/trips/invites/existing-account-token/accept")
     );
-    expect(acceptCalls).toHaveLength(2);
+    expect(acceptCalls).toHaveLength(1);
   });
 
   it("preserves the accepted trip destination for newly created accounts", async () => {
     const user = userEvent.setup();
     window.history.pushState({}, "", "/invite/new-account-token");
     mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/new-account-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "new@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/new-account-token/accept") && init?.method === "POST") {
         return mockResponse({
           ...acceptedInvite,
@@ -1470,7 +1539,11 @@ describe("TripBuddy frontend", () => {
     });
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: /go to login/i }));
+    await user.type(await screen.findByLabelText(/^name$/i), "New Traveler");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /create account and join/i }));
+    await user.click(await screen.findByRole("button", { name: /log in and open trip/i }));
 
     expect(window.location.search).toBe("?redirect=%2F%3FopenTrip%3D1");
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
