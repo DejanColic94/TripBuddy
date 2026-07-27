@@ -42,6 +42,21 @@ const weatherLabels: Record<number, string> = {
   95: "Thunderstorm",
 };
 
+function getWeatherVisual(code: number) {
+  if (code === 0) return { icon: "☀️", tone: "sunny" };
+  if (code === 1) return { icon: "🌤️", tone: "sunny" };
+  if (code === 2) return { icon: "⛅", tone: "cloudy" };
+  if (code === 3) return { icon: "☁️", tone: "cloudy" };
+  if (code === 45 || code === 48) return { icon: "🌫️", tone: "cloudy" };
+  if (code >= 51 && code <= 57) return { icon: "🌦️", tone: "rainy" };
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) {
+    return { icon: "🌧️", tone: "rainy" };
+  }
+  if (code >= 71 && code <= 77) return { icon: "🌨️", tone: "snowy" };
+  if (code >= 95) return { icon: "⛈️", tone: "stormy" };
+  return { icon: "🌡️", tone: "neutral" };
+}
+
 function WeatherForecast({
   destination,
   startDate,
@@ -111,16 +126,50 @@ function WeatherForecast({
             {forecast.location.country ? `, ${forecast.location.country}` : ""}
           </p>
           <div className="weather-grid">
-            {forecast.days.map((day) => (
-              <article className="weather-card" key={day.date}>
-                <strong>{new Date(`${day.date}T00:00:00`).toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}</strong>
-                <p>{weatherLabels[day.weatherCode] ?? "Variable conditions"}</p>
-                <p>{Math.round(day.temperatureMinC)}° / {Math.round(day.temperatureMaxC)}°C</p>
-                <p>{day.precipitationProbability}% precipitation</p>
-              </article>
-            ))}
+            {forecast.days.map((day, index) => {
+              const visual = getWeatherVisual(day.weatherCode);
+              const isToday =
+                day.date === new Date().toISOString().slice(0, 10);
+
+              return (
+                <article
+                  className={`weather-card weather-card--${visual.tone}${index === 0 ? " weather-card--first" : ""}`}
+                  key={day.date}
+                >
+                  <div className="weather-card-heading">
+                    <strong>
+                      {new Date(`${day.date}T00:00:00`).toLocaleDateString("en", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </strong>
+                    {isToday ? <span className="weather-today">Today</span> : null}
+                  </div>
+                  <span className="weather-icon" aria-hidden="true">
+                    {visual.icon}
+                  </span>
+                  <p className="weather-condition">
+                    {weatherLabels[day.weatherCode] ?? "Variable conditions"}
+                  </p>
+                  <p className="weather-temperature">
+                    <strong>{Math.round(day.temperatureMaxC)}°</strong>
+                    <span>{Math.round(day.temperatureMinC)}°C</span>
+                  </p>
+                  <p className="weather-precipitation">
+                    <span aria-hidden="true">💧</span>
+                    {day.precipitationProbability}% precipitation
+                  </p>
+                </article>
+              );
+            })}
           </div>
-          <small>{forecast.attribution}</small>
+          <small className="weather-attribution">
+            Weather data by{" "}
+            <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
+              Open-Meteo.com
+            </a>
+          </small>
         </>
       ) : null}
     </section>

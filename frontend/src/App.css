@@ -501,20 +501,122 @@ button:disabled {
 
 .weather-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  gap: 0.9rem;
   margin: 1rem 0;
 }
 
 .weather-card {
-  padding: 1rem;
+  min-height: 205px;
+  padding: 1rem 1.05rem;
   border: 1px solid #dbe7e2;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.55);
+  border-radius: 18px;
+  background: linear-gradient(155deg, #ffffff 0%, #f3f8f6 100%);
+  box-shadow: 0 8px 20px rgba(24, 72, 60, 0.06);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.weather-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px rgba(24, 72, 60, 0.1);
+}
+
+.weather-card--sunny {
+  background: linear-gradient(155deg, #fffdf4 0%, #fff4c9 100%);
+}
+
+.weather-card--rainy {
+  background: linear-gradient(155deg, #f8fcff 0%, #ddecf5 100%);
+}
+
+.weather-card--cloudy {
+  background: linear-gradient(155deg, #fbfcfd 0%, #e8edf0 100%);
+}
+
+.weather-card--snowy {
+  background: linear-gradient(155deg, #ffffff 0%, #e8f6fa 100%);
+}
+
+.weather-card--stormy {
+  background: linear-gradient(155deg, #f7f5fb 0%, #ded8eb 100%);
 }
 
 .weather-card p {
   margin: 0.35rem 0 0;
+}
+
+.weather-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.weather-today {
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #256d5a;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.weather-icon {
+  display: block;
+  margin: 0.8rem 0 0.45rem;
+  font-size: 2.5rem;
+  line-height: 1;
+  filter: drop-shadow(0 4px 4px rgba(23, 72, 60, 0.12));
+}
+
+.weather-condition {
+  min-height: 1.4em;
+  color: #385f55;
+}
+
+.weather-temperature {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.weather-temperature strong {
+  color: #17483c;
+  font-size: 1.65rem;
+}
+
+.weather-temperature span {
+  color: #6a7e78;
+}
+
+.weather-precipitation {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #376f8d;
+  font-size: 0.9rem;
+}
+
+.weather-attribution {
+  color: #6a7e78;
+}
+
+.weather-attribution a {
+  color: #256d5a;
+}
+
+@media (max-width: 700px) {
+  .weather-grid {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .weather-card {
+    min-width: 175px;
+    scroll-snap-align: start;
+  }
 }
 
 .trip-info-card {

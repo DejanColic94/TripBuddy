@@ -39,8 +39,14 @@ it("renders a normalized weather forecast with attribution", async () => {
 
   expect(await screen.findByText("Lisbon, Portugal")).toBeInTheDocument();
   expect(screen.getByText("Mostly clear")).toBeInTheDocument();
-  expect(screen.getByText("18° / 26°C")).toBeInTheDocument();
-  expect(screen.getByText("Weather data by Open-Meteo.com")).toBeInTheDocument();
+  expect(screen.getByText("🌤️")).toBeInTheDocument();
+  expect(screen.getByText("26°")).toBeInTheDocument();
+  expect(screen.getByText("18°C")).toBeInTheDocument();
+  expect(screen.getByText("15% precipitation")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open-Meteo.com" })).toHaveAttribute(
+    "href",
+    "https://open-meteo.com/"
+  );
   expect(fetchMock).toHaveBeenCalledWith(
     expect.stringContaining(
       "/integrations/weather?destination=Lisbon%2C+Portugal&startDate=2026-07-28&endDate=2026-07-28"
