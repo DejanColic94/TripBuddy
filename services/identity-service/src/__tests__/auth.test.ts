@@ -6,6 +6,8 @@ import pool, { initDb } from "../db";
 const email = `test-${Date.now()}@example.com`;
 const password = "password123";
 const name = "Test Traveler";
+const changedEmail = `changed-${Date.now()}@example.com`;
+const existingEmail = `existing-${Date.now()}@example.com`;
 
 beforeAll(async () => {
   process.env.IDENTITY_JWT_SECRET ??= "test_identity_secret";
@@ -13,7 +15,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await pool.query("DELETE FROM users WHERE email = $1", [email]);
+  await pool.query(
+    "DELETE FROM users WHERE LOWER(email) = ANY($1::text[])",
+    [[email, changedEmail, existingEmail].map((value) => value.toLowerCase())]
+  );
   await pool.end();
 });
 
@@ -162,6 +167,98 @@ describe("identity-service auth endpoints", () => {
     const response = await request(app)
       .patch("/me")
       .send({ name: "Unauthorized Traveler" });
+
+    expect(response.status).toBe(401);
+  });
+
+  it("changes email after verifying the current password", async () => {
+    const response = await request(app)
+      .patch("/me/email")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: `  ${changedEmail.toUpperCase()}  `,
+        currentPassword: password,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.user.email).toBe(changedEmail);
+    expect(response.body.token).toEqual(expect.any(String));
+    expect(
+      jwt.verify(
+        response.body.token,
+        process.env.IDENTITY_JWT_SECRET ?? "test_identity_secret"
+      )
+    ).toEqual(expect.objectContaining({ email: changedEmail }));
+
+    const storedUser = await pool.query(
+      "SELECT email FROM users WHERE id = $1",
+      [response.body.user.id]
+    );
+    expect(storedUser.rows[0].email).toBe(changedEmail);
+
+    await pool.query("UPDATE users SET email = $1 WHERE id = $2", [
+      email,
+      response.body.user.id,
+    ]);
+  });
+
+  it("rejects an email change when the current password is wrong", async () => {
+    const response = await request(app)
+      .patch("/me/email")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: changedEmail,
+        currentPassword: "wrong-password",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Current password is incorrect");
+  });
+
+  it("rejects an invalid new email", async () => {
+    const response = await request(app)
+      .patch("/me/email")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "not-an-email", currentPassword: password });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Enter a valid email address");
+  });
+
+  it("rejects an unchanged email", async () => {
+    const response = await request(app)
+      .patch("/me/email")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: email.toUpperCase(), currentPassword: password });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(
+      "New email must be different from current email"
+    );
+  });
+
+  it("rejects an email already used by another account", async () => {
+    const registerResponse = await request(app)
+      .post("/register")
+      .send({ name: "Existing User", email: existingEmail, password });
+    expect(registerResponse.status).toBe(201);
+
+    const response = await request(app)
+      .patch("/me/email")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: existingEmail.toUpperCase(),
+        currentPassword: password,
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe("Email already exists");
+  });
+
+  it("rejects email changes without authentication", async () => {
+    const response = await request(app)
+      .patch("/me/email")
+      .send({ email: changedEmail, currentPassword: password });
 
     expect(response.status).toBe(401);
   });

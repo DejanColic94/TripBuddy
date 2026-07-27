@@ -204,6 +204,7 @@ button:disabled {
 
 .profile-card {
   max-width: 36rem;
+  margin-bottom: 1.5rem;
 }
 
 .profile-card input[readonly] {

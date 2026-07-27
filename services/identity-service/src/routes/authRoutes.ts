@@ -221,4 +221,81 @@ router.patch("/me", authMiddleware, async (req, res) => {
   }
 });
 
+router.patch("/me/email", authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+
+  const { email, currentPassword } = req.body;
+
+  if (typeof email !== "string" || email.trim().length === 0) {
+    return res.status(400).json({ message: "New email is required" });
+  }
+
+  if (typeof currentPassword !== "string" || currentPassword.length === 0) {
+    return res.status(400).json({ message: "Current password is required" });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (normalizedEmail.length > 320 || !emailPattern.test(normalizedEmail)) {
+    return res.status(400).json({ message: "Enter a valid email address" });
+  }
+
+  try {
+    const currentUserResult = await pool.query<
+      AuthUser & { password: string }
+    >(
+      "SELECT id, name, email, role, password FROM users WHERE id = $1",
+      [req.user.id]
+    );
+    const currentUser = currentUserResult.rows[0];
+
+    if (!currentUser) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!(await bcrypt.compare(currentPassword, currentUser.password))) {
+      return res.status(400).json({ message: "Current password is incorrect" });
+    }
+
+    if (currentUser.email.trim().toLowerCase() === normalizedEmail) {
+      return res
+        .status(400)
+        .json({ message: "New email must be different from current email" });
+    }
+
+    const result = await pool.query<AuthUser>(
+      `
+        UPDATE users
+        SET email = $1
+        WHERE id = $2
+        RETURNING id, name, email, role
+      `,
+      [normalizedEmail, currentUser.id]
+    );
+    const user = result.rows[0];
+
+    return res.status(200).json({
+      token: signUserToken(user),
+      user,
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return res.status(409).json({ message: "Email already exists" });
+    }
+
+    console.error("[IDENTITY] Profile email update failed:", error);
+    return res.status(500).json({ message: "Failed to update email" });
+  }
+});
+
 export default router;

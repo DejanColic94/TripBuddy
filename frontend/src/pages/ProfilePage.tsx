@@ -25,6 +25,11 @@ function ProfilePage({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [email, setEmail] = useState(currentUser.email);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [emailSuccessMessage, setEmailSuccessMessage] = useState("");
+  const [isEmailSubmitting, setIsEmailSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -84,6 +89,68 @@ function ProfilePage({
     }
   };
 
+  const handleEmailSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setEmailError("");
+    setEmailSuccessMessage("");
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setEmailError("New email is required");
+      return;
+    }
+
+    if (!currentPassword) {
+      setEmailError("Current password is required");
+      return;
+    }
+
+    setIsEmailSubmitting(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me/email`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          currentPassword,
+        }),
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as ProfileResponse;
+
+      if (
+        !response.ok ||
+        !("user" in data) ||
+        !("token" in data) ||
+        typeof data.token !== "string"
+      ) {
+        setEmailError(
+          ("message" in data && data.message) || "Failed to update email"
+        );
+        return;
+      }
+
+      setEmail(data.user.email);
+      setCurrentPassword("");
+      onUserUpdated(data.token, data.user);
+      setEmailSuccessMessage("Email updated");
+    } catch {
+      setEmailError("Failed to update email");
+    } finally {
+      setIsEmailSubmitting(false);
+    }
+  };
+
   return (
     <section className="page profile-page">
       <div className="page-header">
@@ -110,11 +177,6 @@ function ProfilePage({
           </label>
 
           <label>
-            Email
-            <input value={currentUser.email} readOnly />
-          </label>
-
-          <label>
             Role
             <input value={currentUser.role} readOnly />
           </label>
@@ -124,6 +186,49 @@ function ProfilePage({
 
           <button className="primary-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Saving..." : "Save profile"}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel profile-card">
+        <h2>Change email</h2>
+        <p className="page-subtitle">
+          Confirm your current password before changing your sign-in email.
+        </p>
+
+        <form className="form-stack" onSubmit={handleEmailSubmit}>
+          <label>
+            New email
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            Current password
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+
+          {emailError ? <p className="error">{emailError}</p> : null}
+          {emailSuccessMessage ? (
+            <p className="success">{emailSuccessMessage}</p>
+          ) : null}
+
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isEmailSubmitting}
+          >
+            {isEmailSubmitting ? "Changing email..." : "Change email"}
           </button>
         </form>
       </section>

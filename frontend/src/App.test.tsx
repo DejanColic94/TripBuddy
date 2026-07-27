@@ -529,7 +529,7 @@ describe("TripBuddy frontend", () => {
 
     expect(screen.getByRole("heading", { name: /my profile/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/name/i)).toHaveValue("Ana Traveler");
-    expect(screen.getByLabelText(/email/i)).toHaveValue("test@example.com");
+    expect(screen.getByLabelText(/new email/i)).toHaveValue("test@example.com");
     expect(screen.getByLabelText(/role/i)).toHaveValue("user");
   });
 
@@ -605,6 +605,81 @@ describe("TripBuddy frontend", () => {
 
     expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
     expect(localStorage.getItem("token")).toBeNull();
+  });
+
+  it("changes email with the current password and stores the refreshed session", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const updatedUser = { ...authUser, email: "updated@example.com" };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+
+        if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
+          return mockResponse({
+            token: "email-refreshed-token",
+            user: updatedUser,
+          });
+        }
+
+        if (url.endsWith("/trips")) {
+          return mockResponse([]);
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const emailInput = screen.getByLabelText(/new email/i);
+    await user.clear(emailInput);
+    await user.type(emailInput, "UPDATED@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/current password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /change email/i }));
+
+    expect(await screen.findByText("Email updated")).toBeInTheDocument();
+    expect(emailInput).toHaveValue("updated@example.com");
+    expect(localStorage.getItem("token")).toBe("email-refreshed-token");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/me/email"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          email: "updated@example.com",
+          currentPassword: "password123",
+        }),
+      })
+    );
+  });
+
+  it("shows an incorrect-password error when changing email", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
+        return mockResponse({ message: "Current password is incorrect" }, 400);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.clear(screen.getByLabelText(/new email/i));
+    await user.type(screen.getByLabelText(/new email/i), "updated@example.com");
+    await user.type(screen.getByLabelText(/current password/i), "wrong-password");
+    await user.click(screen.getByRole("button", { name: /change email/i }));
+
+    expect(
+      await screen.findByText("Current password is incorrect")
+    ).toBeInTheDocument();
   });
 
   it("opens trip details and returns to trips list", async () => {
