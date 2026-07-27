@@ -628,6 +628,41 @@ describe("trip-service endpoints", () => {
     expect(acceptResponse.body.error).toBe("Invite has expired");
   });
 
+  it("creates revocable read-only guest access without storing the raw token", async () => {
+    const inviteResponse = await request(app)
+      .post(`/trips/${tripId}/invites`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "guest-access@example.com", role: "viewer" });
+    const guestResponse = await request(app)
+      .post(`/trips/invites/${inviteResponse.body.token}/guest`)
+      .send({ displayName: "Guest Traveler" });
+
+    expect(guestResponse.status).toBe(201);
+    expect(guestResponse.body.guestToken).toEqual(expect.any(String));
+
+    const storedAccess = await pool.query<{ id: number; token_hash: string }>(
+      "SELECT id, token_hash FROM trip_guest_access WHERE invite_id = $1",
+      [inviteResponse.body.id]
+    );
+    expect(storedAccess.rows[0].token_hash).not.toBe(guestResponse.body.guestToken);
+
+    const tripResponse = await request(app).get(
+      `/trips/guests/${guestResponse.body.guestToken}/trip`
+    );
+    expect(tripResponse.status).toBe(200);
+    expect(tripResponse.body.guest.displayName).toBe("Guest Traveler");
+    expect(tripResponse.body.permissions).toEqual({ readOnly: true });
+
+    const revokeResponse = await request(app)
+      .delete(`/trips/${tripId}/guests/${storedAccess.rows[0].id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(revokeResponse.status).toBe(204);
+    const revokedResponse = await request(app).get(
+      `/trips/guests/${guestResponse.body.guestToken}/trip`
+    );
+    expect(revokedResponse.status).toBe(404);
+  });
+
   it("allows unauthenticated invite acceptance route access but requires login for an existing invited account", async () => {
     const response = await request(app).post(`/trips/invites/${inviteToken}/accept`);
     const inviteState = await pool.query<{ accepted_at: string | null }>(

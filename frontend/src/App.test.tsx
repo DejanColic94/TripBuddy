@@ -1379,6 +1379,55 @@ describe("TripBuddy frontend", () => {
     );
   });
 
+  it("opens a trip with read-only guest access", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/guest-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/guest-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "guest@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
+      if (url.endsWith("/trips/invites/guest-token/guest") && init?.method === "POST") {
+        return mockResponse({
+          tripId: 1,
+          displayName: "Guest Traveler",
+          guestToken: "guest-access-token",
+          expiresInDays: 30,
+        }, 201);
+      }
+      if (url.endsWith("/trips/guests/guest-access-token/trip")) {
+        return mockResponse({
+          guest: { displayName: "Guest Traveler", expiresAt: "2030-01-01" },
+          trip: {
+            name: "Lisbon Spring",
+            description: "Shared plan",
+            destination: "Lisbon",
+            startDate: null,
+            endDate: null,
+          },
+          itinerary: [],
+          expenses: [],
+          permissions: { readOnly: true },
+        });
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.type(await screen.findByLabelText(/guest display name/i), "Guest Traveler");
+    await user.click(screen.getByRole("button", { name: /continue as guest/i }));
+
+    expect(await screen.findByText("Read-only guest access")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Lisbon Spring" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/guest/guest-access-token");
+  });
+
   it("shows an error for an invalid invite", async () => {
     window.history.pushState({}, "", "/invite/bad-token");
     mockFetch((url, init) => {

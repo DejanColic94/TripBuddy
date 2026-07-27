@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import {
   ApiRequestError,
   acceptTripInvite,
+  continueAsGuest,
   fetchTripInvitePreview,
   type AcceptTripInviteResponse,
   type TripInvitePreview,
@@ -13,6 +14,7 @@ type AcceptInvitePageProps = {
   onBackToTrips: () => void;
   onGoToLogin: (redirectPath: string) => void;
   onOpenTrip: (tripId: number) => void;
+  onOpenGuestTrip: (guestToken: string) => void;
 };
 
 type InviteStatus =
@@ -53,6 +55,7 @@ function AcceptInvitePage({
   onBackToTrips,
   onGoToLogin,
   onOpenTrip,
+  onOpenGuestTrip,
 }: AcceptInvitePageProps) {
   const [status, setStatus] = useState<InviteStatus>({ kind: "loading" });
   const [name, setName] = useState("");
@@ -60,6 +63,7 @@ function AcceptInvitePage({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [guestName, setGuestName] = useState("");
   const trimmedInviteToken = inviteToken.trim();
   const currentInvitePath = `/invite/${encodeURIComponent(trimmedInviteToken)}`;
 
@@ -139,6 +143,29 @@ function AcceptInvitePage({
     }
 
     await accept({ name: normalizedName, password });
+  };
+
+  const handleGuestSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedName = guestName.trim();
+    if (!normalizedName) {
+      setFormError("Display name is required");
+      return;
+    }
+    setFormError("");
+    setIsSubmitting(true);
+    try {
+      const guestAccess = await continueAsGuest(trimmedInviteToken, normalizedName);
+      onOpenGuestTrip(guestAccess.guestToken);
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        setStatus({ kind: "error", status: error.status, message: error.error });
+      } else {
+        setStatus({ kind: "error", status: 500, message: "Failed to continue as guest" });
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -230,6 +257,24 @@ function AcceptInvitePage({
                   </button>
                 </form>
               )}
+              {!token && !status.invite.accountExists ? (
+                <form className="form-stack" onSubmit={handleGuestSubmit}>
+                  <p>Or continue with read-only guest access.</p>
+                  <label>
+                    Guest display name
+                    <input
+                      value={guestName}
+                      onChange={(event) => setGuestName(event.target.value)}
+                      maxLength={255}
+                      required
+                    />
+                  </label>
+                  {formError ? <p className="error">{formError}</p> : null}
+                  <button className="secondary-button" type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Opening trip..." : "Continue as guest"}
+                  </button>
+                </form>
+              ) : null}
             </>
           ) : null}
 

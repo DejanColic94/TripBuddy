@@ -47,6 +47,36 @@ export type TripInvitePreview = {
   expiresAt: string;
 };
 
+export type GuestAccessResponse = {
+  tripId: number;
+  displayName: string;
+  guestToken: string;
+  expiresInDays: number;
+};
+
+export async function continueAsGuest(
+  inviteToken: string,
+  displayName: string
+): Promise<GuestAccessResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/invites/${encodeURIComponent(inviteToken.trim())}/guest`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: displayName.trim() }),
+    }
+  );
+  const data = await readJsonSafely(response);
+  if (!response.ok) {
+    const error =
+      data && typeof data === "object" && "error" in data && typeof data.error === "string"
+        ? data.error
+        : "Failed to continue as guest";
+    throw new ApiRequestError(response.status, error);
+  }
+  return data as GuestAccessResponse;
+}
+
 async function readJsonSafely(response: Response): Promise<unknown> {
   try {
     return await response.json();

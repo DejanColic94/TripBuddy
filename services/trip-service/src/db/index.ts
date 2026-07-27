@@ -97,6 +97,20 @@ export async function initDb(): Promise<void> {
     console.log("[DB] Trip invites table ensured");
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS trip_guest_access (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL,
+        invite_id INTEGER NOT NULL UNIQUE REFERENCES trip_invites(id) ON DELETE CASCADE,
+        display_name VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '30 days'),
+        revoked_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[DB] Trip guest access table ensured");
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS itinerary_items (
         id SERIAL PRIMARY KEY,
         trip_id INTEGER NOT NULL,
