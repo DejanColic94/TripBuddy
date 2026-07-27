@@ -201,6 +201,7 @@ function App() {
   const handleGoToLogin = (redirectPath: string) => {
     const redirect = redirectPath.startsWith("/") && !redirectPath.startsWith("//") ? redirectPath : "/";
 
+    handleLogout();
     window.history.pushState({}, "", `/?redirect=${encodeURIComponent(redirect)}`);
     setInviteToken(null);
     setSelectedTrip(null);
