@@ -6,6 +6,12 @@ export type SendTemporaryCredentialsEmailInput = {
   temporaryPassword: string;
 };
 
+export type SendPasswordResetEmailInput = {
+  recipientEmail: string;
+  displayName: string;
+  resetToken: string;
+};
+
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
 
@@ -27,6 +33,12 @@ function escapeHtml(value: string): string {
 
 function buildLoginUrl(frontendUrl: string): string {
   return `${frontendUrl.replace(/\/+$/, "")}/login`;
+}
+
+function buildPasswordResetUrl(frontendUrl: string, resetToken: string): string {
+  return `${frontendUrl.replace(/\/+$/, "")}/reset-password/${encodeURIComponent(
+    resetToken
+  )}`;
 }
 
 export async function sendTemporaryCredentialsEmail(
@@ -85,5 +97,57 @@ export async function sendTemporaryCredentialsEmail(
     throw new Error(
       `Failed to send temporary credentials email: ${result.error.message}`
     );
+  }
+}
+
+export async function sendPasswordResetEmail(
+  input: SendPasswordResetEmailInput
+): Promise<void> {
+  const resendApiKey = getRequiredEnv("RESEND_API_KEY");
+  const emailFrom = getRequiredEnv("EMAIL_FROM");
+  const frontendUrl = getRequiredEnv("FRONTEND_URL");
+  const resetUrl = buildPasswordResetUrl(frontendUrl, input.resetToken);
+  const subject = "Reset your TripBuddy password";
+
+  const text = [
+    `Hello ${input.displayName},`,
+    "",
+    "Use the link below to reset your TripBuddy password.",
+    "This link expires in 30 minutes and can be used only once.",
+    "",
+    resetUrl,
+    "",
+    "If you did not request this, you can ignore this email.",
+  ].join("\n");
+
+  const escapedDisplayName = escapeHtml(input.displayName);
+  const escapedResetUrl = escapeHtml(resetUrl);
+  const html = `
+    <div>
+      <p>Hello ${escapedDisplayName},</p>
+      <p>Use the link below to reset your TripBuddy password.</p>
+      <p>This link expires in 30 minutes and can be used only once.</p>
+      <p>
+        <a href="${escapedResetUrl}" style="display:inline-block;padding:12px 18px;background:#256d5a;color:#ffffff;text-decoration:none;border-radius:6px;">
+          Reset password
+        </a>
+      </p>
+      <p>If the button does not work, open this link:</p>
+      <p><a href="${escapedResetUrl}">${escapedResetUrl}</a></p>
+      <p>If you did not request this, you can ignore this email.</p>
+    </div>
+  `;
+
+  const resend = new Resend(resendApiKey);
+  const result = await resend.emails.send({
+    from: emailFrom,
+    to: input.recipientEmail,
+    subject,
+    text,
+    html,
+  });
+
+  if (result.error) {
+    throw new Error(`Failed to send password reset email: ${result.error.message}`);
   }
 }

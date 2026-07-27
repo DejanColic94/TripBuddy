@@ -1,8 +1,10 @@
 import bcrypt from "bcrypt";
+import { createHash, randomBytes } from "crypto";
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import pool from "../db";
 import authMiddleware from "../middleware/authMiddleware";
+import { sendPasswordResetEmail } from "../services/emailService";
 
 const router = Router();
 
@@ -26,6 +28,14 @@ function signUserToken(user: AuthUser): string {
     { expiresIn: "1h" }
   );
 }
+
+function hashResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+const passwordResetResponse = {
+  message: "If an account exists for that email, a reset link has been sent",
+};
 
 router.get("/test", (_req, res) => {
   return res.status(200).json({
@@ -120,6 +130,165 @@ router.post("/login", async (req, res) => {
     return res.status(500).json({
       message: "Failed to login",
     });
+  }
+});
+
+router.post("/forgot-password", async (req, res) => {
+  const email = req.body.email;
+
+  if (typeof email !== "string" || email.trim().length === 0) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  try {
+    const userResult = await pool.query<AuthUser>(
+      "SELECT id, name, email, role FROM users WHERE LOWER(email) = $1",
+      [normalizedEmail]
+    );
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(200).json(passwordResetResponse);
+    }
+
+    const recentTokenResult = await pool.query(
+      `
+        SELECT id
+        FROM password_reset_tokens
+        WHERE user_id = $1
+          AND created_at > CURRENT_TIMESTAMP - INTERVAL '60 seconds'
+        LIMIT 1
+      `,
+      [user.id]
+    );
+
+    if (recentTokenResult.rowCount && recentTokenResult.rowCount > 0) {
+      return res.status(200).json(passwordResetResponse);
+    }
+
+    const resetToken = randomBytes(32).toString("hex");
+    const tokenHash = hashResetToken(resetToken);
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `
+          UPDATE password_reset_tokens
+          SET used_at = CURRENT_TIMESTAMP
+          WHERE user_id = $1 AND used_at IS NULL
+        `,
+        [user.id]
+      );
+      await client.query(
+        `
+          INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+          VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '30 minutes')
+        `,
+        [user.id, tokenHash]
+      );
+      await sendPasswordResetEmail({
+        recipientEmail: user.email,
+        displayName: user.name,
+        resetToken,
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error(
+          "[IDENTITY] Failed to rollback password reset request:",
+          rollbackError
+        );
+      }
+      console.error("[IDENTITY] Failed to send password reset email:", error);
+    } finally {
+      client.release();
+    }
+
+    return res.status(200).json(passwordResetResponse);
+  } catch (error) {
+    console.error("[IDENTITY] Password reset request failed:", error);
+    return res.status(500).json({ message: "Failed to request password reset" });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  if (typeof token !== "string" || token.trim().length === 0) {
+    return res.status(400).json({ message: "Reset token is required" });
+  }
+
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    return res
+      .status(400)
+      .json({ message: "New password must be at least 8 characters" });
+  }
+
+  if (Buffer.byteLength(newPassword, "utf8") > 72) {
+    return res
+      .status(400)
+      .json({ message: "New password must be 72 bytes or fewer" });
+  }
+
+  const tokenHash = hashResetToken(token.trim());
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const tokenResult = await client.query<{ id: number; user_id: number }>(
+      `
+        SELECT id, user_id
+        FROM password_reset_tokens
+        WHERE token_hash = $1
+          AND used_at IS NULL
+          AND expires_at > CURRENT_TIMESTAMP
+        FOR UPDATE
+      `,
+      [tokenHash]
+    );
+    const resetToken = tokenResult.rows[0];
+
+    if (!resetToken) {
+      await client.query("ROLLBACK");
+      return res
+        .status(400)
+        .json({ message: "Reset link is invalid or has expired" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await client.query("UPDATE users SET password = $1 WHERE id = $2", [
+      hashedPassword,
+      resetToken.user_id,
+    ]);
+    await client.query(
+      `
+        UPDATE password_reset_tokens
+        SET used_at = CURRENT_TIMESTAMP
+        WHERE user_id = $1 AND used_at IS NULL
+      `,
+      [resetToken.user_id]
+    );
+    await client.query("COMMIT");
+
+    return res.status(200).json({ message: "Password reset successfully" });
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error(
+        "[IDENTITY] Failed to rollback password reset:",
+        rollbackError
+      );
+    }
+    console.error("[IDENTITY] Password reset failed:", error);
+    return res.status(500).json({ message: "Failed to reset password" });
+  } finally {
+    client.release();
   }
 });
 
