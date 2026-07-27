@@ -16,6 +16,8 @@ const PORT = process.env.GATEWAY_PORT || 4000;
 const IDENTITY_SERVICE_URL =
   process.env.IDENTITY_SERVICE_URL || "http://localhost:4001";
 const TRIP_SERVICE_URL = process.env.TRIP_SERVICE_URL || "http://localhost:4002";
+const INTEGRATION_SERVICE_URL =
+  process.env.INTEGRATION_SERVICE_URL || "http://localhost:4003";
 
 app.use(cors());
 app.use(helmet());
@@ -50,6 +52,15 @@ app.use(
     on: {
       proxyReq: fixRequestBody,
     },
+  })
+);
+
+app.use(
+  "/integrations",
+  createProxyMiddleware({
+    target: INTEGRATION_SERVICE_URL,
+    changeOrigin: true,
+    pathRewrite: { "^/integrations": "" },
   })
 );
 
