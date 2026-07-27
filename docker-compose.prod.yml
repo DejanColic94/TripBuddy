@@ -10,9 +10,19 @@ services:
       GATEWAY_PORT: 4000
       IDENTITY_SERVICE_URL: http://identity-service:4001
       TRIP_SERVICE_URL: http://trip-service:4002
+      INTEGRATION_SERVICE_URL: http://integration-service:4003
     depends_on:
       - identity-service
       - trip-service
+      - integration-service
+
+  integration-service:
+    build:
+      context: ./services/integration-service
+    container_name: tripbuddy-integration-service
+    restart: unless-stopped
+    environment:
+      INTEGRATION_SERVICE_PORT: 4003
 
   identity-service:
     build:
