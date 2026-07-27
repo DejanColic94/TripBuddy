@@ -12,6 +12,14 @@ export type SendPasswordResetEmailInput = {
   resetToken: string;
 };
 
+export type SendEmailVerificationInput = {
+  recipientEmail: string;
+  displayName: string;
+  verificationToken: string;
+};
+
+export type SendEmailChangeVerificationInput = SendEmailVerificationInput;
+
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
 
@@ -38,6 +46,15 @@ function buildLoginUrl(frontendUrl: string): string {
 function buildPasswordResetUrl(frontendUrl: string, resetToken: string): string {
   return `${frontendUrl.replace(/\/+$/, "")}/reset-password/${encodeURIComponent(
     resetToken
+  )}`;
+}
+
+function buildEmailVerificationUrl(
+  frontendUrl: string,
+  verificationToken: string
+): string {
+  return `${frontendUrl.replace(/\/+$/, "")}/verify-email/${encodeURIComponent(
+    verificationToken
   )}`;
 }
 
@@ -149,5 +166,109 @@ export async function sendPasswordResetEmail(
 
   if (result.error) {
     throw new Error(`Failed to send password reset email: ${result.error.message}`);
+  }
+}
+
+export async function sendEmailVerification(
+  input: SendEmailVerificationInput
+): Promise<void> {
+  const resendApiKey = getRequiredEnv("RESEND_API_KEY");
+  const emailFrom = getRequiredEnv("EMAIL_FROM");
+  const frontendUrl = getRequiredEnv("FRONTEND_URL");
+  const verificationUrl = buildEmailVerificationUrl(
+    frontendUrl,
+    input.verificationToken
+  );
+  const subject = "Verify your TripBuddy email";
+  const text = [
+    `Hello ${input.displayName},`,
+    "",
+    "Verify your email address to finish setting up your TripBuddy account.",
+    "This link expires in 24 hours and can be used only once.",
+    "",
+    verificationUrl,
+  ].join("\n");
+  const escapedDisplayName = escapeHtml(input.displayName);
+  const escapedVerificationUrl = escapeHtml(verificationUrl);
+  const html = `
+    <div>
+      <p>Hello ${escapedDisplayName},</p>
+      <p>Verify your email address to finish setting up your TripBuddy account.</p>
+      <p>This link expires in 24 hours and can be used only once.</p>
+      <p>
+        <a href="${escapedVerificationUrl}" style="display:inline-block;padding:12px 18px;background:#256d5a;color:#ffffff;text-decoration:none;border-radius:6px;">
+          Verify email
+        </a>
+      </p>
+      <p>If the button does not work, open this link:</p>
+      <p><a href="${escapedVerificationUrl}">${escapedVerificationUrl}</a></p>
+    </div>
+  `;
+  const resend = new Resend(resendApiKey);
+  const result = await resend.emails.send({
+    from: emailFrom,
+    to: input.recipientEmail,
+    subject,
+    text,
+    html,
+  });
+
+  if (result.error) {
+    throw new Error(
+      `Failed to send email verification: ${result.error.message}`
+    );
+  }
+}
+
+export async function sendEmailChangeVerification(
+  input: SendEmailChangeVerificationInput
+): Promise<void> {
+  const resendApiKey = getRequiredEnv("RESEND_API_KEY");
+  const emailFrom = getRequiredEnv("EMAIL_FROM");
+  const frontendUrl = getRequiredEnv("FRONTEND_URL");
+  const verificationUrl = buildEmailVerificationUrl(
+    frontendUrl,
+    input.verificationToken
+  );
+  const subject = "Confirm your new TripBuddy email";
+  const text = [
+    `Hello ${input.displayName},`,
+    "",
+    "Confirm this email address to use it for your TripBuddy account.",
+    "Your current email remains active until you confirm this change.",
+    "This link expires in 24 hours and can be used only once.",
+    "",
+    verificationUrl,
+  ].join("\n");
+  const escapedDisplayName = escapeHtml(input.displayName);
+  const escapedVerificationUrl = escapeHtml(verificationUrl);
+  const html = `
+    <div>
+      <p>Hello ${escapedDisplayName},</p>
+      <p>Confirm this email address to use it for your TripBuddy account.</p>
+      <p>Your current email remains active until you confirm this change.</p>
+      <p>This link expires in 24 hours and can be used only once.</p>
+      <p>
+        <a href="${escapedVerificationUrl}" style="display:inline-block;padding:12px 18px;background:#256d5a;color:#ffffff;text-decoration:none;border-radius:6px;">
+          Confirm new email
+        </a>
+      </p>
+      <p>If the button does not work, open this link:</p>
+      <p><a href="${escapedVerificationUrl}">${escapedVerificationUrl}</a></p>
+    </div>
+  `;
+  const resend = new Resend(resendApiKey);
+  const result = await resend.emails.send({
+    from: emailFrom,
+    to: input.recipientEmail,
+    subject,
+    text,
+    html,
+  });
+
+  if (result.error) {
+    throw new Error(
+      `Failed to send email change verification: ${result.error.message}`
+    );
   }
 }

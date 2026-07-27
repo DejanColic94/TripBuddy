@@ -149,8 +149,8 @@ router.post("/users/invited", async (req, res) => {
     const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
     const userResult = await client.query<UserLookupRow>(
       `
-        INSERT INTO users (name, email, password)
-        VALUES ($1, $2, $3)
+        INSERT INTO users (name, email, password, email_verified)
+        VALUES ($1, $2, $3, TRUE)
         RETURNING id, name, email, role
       `,
       [displayName, normalizedEmail, hashedPassword]

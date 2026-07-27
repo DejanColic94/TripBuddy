@@ -2,19 +2,26 @@ import { createHash } from "crypto";
 import request from "supertest";
 import app from "../app";
 import pool, { initDb } from "../db";
-import { sendPasswordResetEmail } from "../services/emailService";
+import {
+  sendEmailVerification,
+  sendPasswordResetEmail,
+} from "../services/emailService";
 
 jest.mock("../services/emailService", () => ({
   ...jest.requireActual("../services/emailService"),
+  sendEmailVerification: jest.fn(),
   sendPasswordResetEmail: jest.fn(),
 }));
 
+const mockedSendEmailVerification =
+  sendEmailVerification as jest.MockedFunction<typeof sendEmailVerification>;
 const mockedSendPasswordResetEmail =
   sendPasswordResetEmail as jest.MockedFunction<typeof sendPasswordResetEmail>;
 const email = `recovery-${Date.now()}@example.com`;
 const password = "password123";
 
 beforeAll(async () => {
+  mockedSendEmailVerification.mockResolvedValue();
   await initDb();
   await pool.query(
     "DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
@@ -24,6 +31,9 @@ beforeAll(async () => {
   await request(app)
     .post("/register")
     .send({ name: "Recovery Traveler", email, password });
+  await pool.query("UPDATE users SET email_verified = TRUE WHERE email = $1", [
+    email,
+  ]);
 });
 
 afterAll(async () => {

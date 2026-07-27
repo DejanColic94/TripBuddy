@@ -12,6 +12,7 @@ const authUser = {
   name: "Ana Traveler",
   email: "test@example.com",
   role: "user",
+  emailVerified: true,
 };
 
 const ownerParticipant = {
@@ -291,6 +292,77 @@ describe("TripBuddy frontend", () => {
     await user.click(screen.getByRole("button", { name: "Login" }));
 
     expect(await screen.findByText("Invalid credentials")).toBeInTheDocument();
+  });
+
+  it("offers verification resend when login requires verification", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/login") && init?.method === "POST") {
+        return mockResponse({ message: "Email verification required" }, 403);
+      }
+      if (url.endsWith("/auth/resend-verification") && init?.method === "POST") {
+        return mockResponse({
+          message:
+            "If an unverified account exists for that email, a verification link has been sent",
+        });
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/email/i), "TEST@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+    await user.click(await screen.findByRole("button", { name: /resend verification email/i }));
+
+    expect(
+      await screen.findByText(/if an unverified account exists/i)
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/resend-verification"),
+      expect.objectContaining({
+        body: JSON.stringify({ email: "test@example.com" }),
+      })
+    );
+  });
+
+  it("verifies an email from a public link and returns to login", async () => {
+    window.history.pushState({}, "", "/verify-email/verification-token-123");
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/verify-email") && init?.method === "POST") {
+        return mockResponse({ message: "Email verified successfully" });
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByText("Email verified successfully. You can now log in.")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/verify-email"),
+      expect.objectContaining({
+        body: JSON.stringify({ token: "verification-token-123" }),
+      })
+    );
+  });
+
+  it("shows an expired verification-link error", async () => {
+    window.history.pushState({}, "", "/verify-email/expired-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/verify-email") && init?.method === "POST") {
+        return mockResponse(
+          { message: "Verification link is invalid or has expired" },
+          400
+        );
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+    expect(
+      await screen.findByText("Verification link is invalid or has expired")
+    ).toBeInTheDocument();
   });
 
   it("requests a password reset without revealing whether the account exists", async () => {
@@ -746,18 +818,17 @@ describe("TripBuddy frontend", () => {
     expect(localStorage.getItem("token")).toBeNull();
   });
 
-  it("changes email with the current password and stores the refreshed session", async () => {
+  it("requests email verification while keeping the current session", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();
-    const updatedUser = { ...authUser, email: "updated@example.com" };
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input.toString();
 
         if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
           return mockResponse({
-            token: "email-refreshed-token",
-            user: updatedUser,
+            message:
+              "Verification email sent. Your current email remains active until you confirm the new address",
           });
         }
 
@@ -778,10 +849,12 @@ describe("TripBuddy frontend", () => {
     await user.type(screen.getByLabelText(/^current password$/i), "password123");
     await user.click(screen.getByRole("button", { name: /change email/i }));
 
-    expect(await screen.findByText("Email updated")).toBeInTheDocument();
-    expect(emailInput).toHaveValue("updated@example.com");
-    expect(localStorage.getItem("token")).toBe("email-refreshed-token");
-    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(
+      await screen.findByText(/current email remains active/i)
+    ).toBeInTheDocument();
+    expect(emailInput).toHaveValue(authUser.email);
+    expect(localStorage.getItem("token")).toBe("test-token");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/auth/me/email"),
       expect.objectContaining({

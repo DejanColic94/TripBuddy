@@ -2,6 +2,23 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import app from "../app";
 import pool, { initDb } from "../db";
+import {
+  sendEmailChangeVerification,
+  sendEmailVerification,
+} from "../services/emailService";
+
+jest.mock("../services/emailService", () => ({
+  ...jest.requireActual("../services/emailService"),
+  sendEmailChangeVerification: jest.fn(),
+  sendEmailVerification: jest.fn(),
+}));
+
+const mockedSendEmailVerification =
+  sendEmailVerification as jest.MockedFunction<typeof sendEmailVerification>;
+const mockedSendEmailChangeVerification =
+  sendEmailChangeVerification as jest.MockedFunction<
+    typeof sendEmailChangeVerification
+  >;
 
 const email = `test-${Date.now()}@example.com`;
 const password = "password123";
@@ -11,6 +28,8 @@ const existingEmail = `existing-${Date.now()}@example.com`;
 
 beforeAll(async () => {
   process.env.IDENTITY_JWT_SECRET ??= "test_identity_secret";
+  mockedSendEmailVerification.mockResolvedValue();
+  mockedSendEmailChangeVerification.mockResolvedValue();
   await initDb();
 });
 
@@ -37,6 +56,14 @@ describe("identity-service auth endpoints", () => {
     expect(response.status).toBe(201);
     expect(response.body.user.name).toBe(name);
     expect(response.body.user.email).toBe(email);
+    expect(response.body.user.emailVerified).toBe(false);
+    expect(mockedSendEmailVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: email })
+    );
+
+    await pool.query("UPDATE users SET email_verified = TRUE WHERE email = $1", [
+      email,
+    ]);
   });
 
   it("rejects register without a name", async () => {
@@ -229,7 +256,7 @@ describe("identity-service auth endpoints", () => {
     expect(response.status).toBe(401);
   });
 
-  it("changes email after verifying the current password", async () => {
+  it("changes email only after verifying the new address", async () => {
     const response = await request(app)
       .patch("/me/email")
       .set("Authorization", `Bearer ${token}`)
@@ -239,25 +266,37 @@ describe("identity-service auth endpoints", () => {
       });
 
     expect(response.status).toBe(200);
-    expect(response.body.user.email).toBe(changedEmail);
-    expect(response.body.token).toEqual(expect.any(String));
-    expect(
-      jwt.verify(
-        response.body.token,
-        process.env.IDENTITY_JWT_SECRET ?? "test_identity_secret"
-      )
-    ).toEqual(expect.objectContaining({ email: changedEmail }));
+    expect(response.body.message).toMatch(/current email remains active/i);
+    expect(mockedSendEmailChangeVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: changedEmail })
+    );
 
     const storedUser = await pool.query(
-      "SELECT email FROM users WHERE id = $1",
-      [response.body.user.id]
+      "SELECT id, email, pending_email FROM users WHERE email = $1",
+      [email]
     );
-    expect(storedUser.rows[0].email).toBe(changedEmail);
+    expect(storedUser.rows[0].email).toBe(email);
+    expect(storedUser.rows[0].pending_email).toBe(changedEmail);
 
-    await pool.query("UPDATE users SET email = $1 WHERE id = $2", [
-      email,
-      response.body.user.id,
-    ]);
+    const emailChangeCalls = mockedSendEmailChangeVerification.mock.calls;
+    const verificationToken =
+      emailChangeCalls[emailChangeCalls.length - 1]?.[0].verificationToken;
+    const verificationResponse = await request(app)
+      .post("/verify-email")
+      .send({ token: verificationToken });
+    expect(verificationResponse.status).toBe(200);
+
+    const verifiedUser = await pool.query(
+      "SELECT email, pending_email FROM users WHERE id = $1",
+      [storedUser.rows[0].id]
+    );
+    expect(verifiedUser.rows[0].email).toBe(changedEmail);
+    expect(verifiedUser.rows[0].pending_email).toBeNull();
+
+    await pool.query(
+      "UPDATE users SET email = $1, pending_email = NULL WHERE id = $2",
+      [email, storedUser.rows[0].id]
+    );
   });
 
   it("rejects an email change when the current password is wrong", async () => {
@@ -271,6 +310,30 @@ describe("identity-service auth endpoints", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.message).toBe("Current password is incorrect");
+  });
+
+  it("keeps the current email when the verification email cannot be sent", async () => {
+    mockedSendEmailChangeVerification.mockRejectedValueOnce(
+      new Error("Email provider unavailable")
+    );
+
+    const response = await request(app)
+      .patch("/me/email")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        email: changedEmail,
+        currentPassword: password,
+      });
+
+    expect(response.status).toBe(500);
+    expect(response.body.message).toBe("Failed to request email change");
+
+    const storedUser = await pool.query(
+      "SELECT email, pending_email FROM users WHERE email = $1",
+      [email]
+    );
+    expect(storedUser.rows[0].email).toBe(email);
+    expect(storedUser.rows[0].pending_email).toBeNull();
   });
 
   it("rejects an invalid new email", async () => {
