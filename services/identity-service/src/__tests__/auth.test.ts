@@ -2,6 +2,15 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import app from "../app";
 import pool, { initDb } from "../db";
+import { sendEmailVerification } from "../services/emailService";
+
+jest.mock("../services/emailService", () => ({
+  ...jest.requireActual("../services/emailService"),
+  sendEmailVerification: jest.fn(),
+}));
+
+const mockedSendEmailVerification =
+  sendEmailVerification as jest.MockedFunction<typeof sendEmailVerification>;
 
 const email = `test-${Date.now()}@example.com`;
 const password = "password123";
@@ -11,6 +20,7 @@ const existingEmail = `existing-${Date.now()}@example.com`;
 
 beforeAll(async () => {
   process.env.IDENTITY_JWT_SECRET ??= "test_identity_secret";
+  mockedSendEmailVerification.mockResolvedValue();
   await initDb();
 });
 
@@ -37,6 +47,14 @@ describe("identity-service auth endpoints", () => {
     expect(response.status).toBe(201);
     expect(response.body.user.name).toBe(name);
     expect(response.body.user.email).toBe(email);
+    expect(response.body.user.emailVerified).toBe(false);
+    expect(mockedSendEmailVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: email })
+    );
+
+    await pool.query("UPDATE users SET email_verified = TRUE WHERE email = $1", [
+      email,
+    ]);
   });
 
   it("rejects register without a name", async () => {

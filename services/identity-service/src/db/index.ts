@@ -30,6 +30,7 @@ export async function initDb(): Promise<void> {
         email VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'user',
+        email_verified BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -70,6 +71,22 @@ export async function initDb(): Promise<void> {
       ON password_reset_tokens (user_id)
     `);
     console.log("[DB] Password reset tokens table ensured");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_verification_tokens_user_id_idx
+      ON email_verification_tokens (user_id)
+    `);
+    console.log("[DB] Email verification tokens table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize identity database:", error);
   }
