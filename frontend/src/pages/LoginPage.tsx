@@ -5,6 +5,7 @@ import type { AuthUser } from "../types/auth";
 type LoginPageProps = {
   onLogin: (token: string, user: AuthUser) => void;
   onForgotPassword: () => void;
+  onVerificationRequired: (email: string) => void;
   notice?: string;
 };
 
@@ -14,7 +15,12 @@ type LoginResponse = {
   message?: string;
 };
 
-function LoginPage({ onLogin, onForgotPassword, notice }: LoginPageProps) {
+function LoginPage({
+  onLogin,
+  onForgotPassword,
+  onVerificationRequired,
+  notice,
+}: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -35,6 +41,14 @@ function LoginPage({ onLogin, onForgotPassword, notice }: LoginPageProps) {
       });
 
       const data = (await response.json()) as LoginResponse;
+
+      if (
+        response.status === 403 &&
+        data.message === "Email verification required"
+      ) {
+        onVerificationRequired(email.trim().toLowerCase());
+        return;
+      }
 
       if (!response.ok || !data.token || !data.user) {
         setError(data.message ?? "Login failed");

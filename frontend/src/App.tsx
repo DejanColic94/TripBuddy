@@ -7,8 +7,10 @@ import LoginPage from "./pages/LoginPage";
 import ProfilePage from "./pages/ProfilePage";
 import RegisterPage from "./pages/RegisterPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import ResendVerificationPage from "./pages/ResendVerificationPage";
 import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import type { AuthUser } from "./types/auth";
 import type { Trip } from "./types/trip";
 
@@ -23,6 +25,11 @@ function getInviteTokenFromPath(pathname: string) {
 function getPasswordResetTokenFromPath(pathname: string) {
   const match = pathname.match(/^\/reset-password\/([^/]+)\/?$/);
 
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getVerificationTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/verify-email\/([^/]+)\/?$/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -65,7 +72,7 @@ function App() {
     () => Boolean(localStorage.getItem("token") && !localStorage.getItem("user"))
   );
   const [authPage, setAuthPage] = useState<
-    "login" | "register" | "forgot-password"
+    "login" | "register" | "forgot-password" | "resend-verification"
   >("login");
   const [authNotice, setAuthNotice] = useState("");
   const [appPage, setAppPage] = useState<"trips" | "profile">("trips");
@@ -74,6 +81,10 @@ function App() {
   const [passwordResetToken, setPasswordResetToken] = useState(() =>
     getPasswordResetTokenFromPath(window.location.pathname)
   );
+  const [verificationToken, setVerificationToken] = useState(() =>
+    getVerificationTokenFromPath(window.location.pathname)
+  );
+  const [verificationEmail, setVerificationEmail] = useState("");
 
   const openTripById = useCallback(async (tripId: number, authToken: string) => {
     try {
@@ -156,7 +167,8 @@ function App() {
           typeof user.id !== "number" ||
           typeof user.name !== "string" ||
           typeof user.email !== "string" ||
-          typeof user.role !== "string"
+          typeof user.role !== "string" ||
+          typeof user.emailVerified !== "boolean"
         ) {
           throw new Error("Failed to restore session");
         }
@@ -225,10 +237,32 @@ function App() {
     setAuthNotice("Password reset successfully. You can now log in.");
   };
 
+  const handleVerificationBackToLogin = useCallback((notice = "") => {
+    handleLogout();
+    window.history.pushState({}, "", "/");
+    setVerificationToken(null);
+    setAuthPage("login");
+    setAuthNotice(notice);
+  }, [handleLogout]);
+
   return (
     <main className="app">
       {isAuthBootstrapping ? (
         <p className="loading-state">Restoring your session...</p>
+      ) : verificationToken !== null ? (
+        <div className="auth-layout">
+          <div className="brand-panel">
+            <p className="eyebrow">TripBuddy</p>
+            <h1>Confirm your address.</h1>
+            <p>Finish setting up your account securely.</p>
+          </div>
+          <div className="auth-column">
+            <VerifyEmailPage
+              verificationToken={verificationToken}
+              onBackToLogin={handleVerificationBackToLogin}
+            />
+          </div>
+        </div>
       ) : passwordResetToken !== null ? (
         <ResetPasswordPage
           resetToken={passwordResetToken}
@@ -299,6 +333,20 @@ function App() {
             <ForgotPasswordPage onBackToLogin={() => setAuthPage("login")} />
           </div>
         </div>
+      ) : authPage === "resend-verification" ? (
+        <div className="auth-layout">
+          <div className="brand-panel">
+            <p className="eyebrow">TripBuddy</p>
+            <h1>One last step.</h1>
+            <p>Verify your email before opening your trips.</p>
+          </div>
+          <div className="auth-column">
+            <ResendVerificationPage
+              email={verificationEmail}
+              onBackToLogin={() => setAuthPage("login")}
+            />
+          </div>
+        </div>
       ) : (
         <div className="auth-layout">
           <div className="brand-panel">
@@ -312,6 +360,10 @@ function App() {
               onForgotPassword={() => {
                 setAuthNotice("");
                 setAuthPage("forgot-password");
+              }}
+              onVerificationRequired={(email) => {
+                setVerificationEmail(email);
+                setAuthPage("resend-verification");
               }}
               notice={authNotice}
             />
