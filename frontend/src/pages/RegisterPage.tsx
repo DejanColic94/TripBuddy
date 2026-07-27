@@ -3,16 +3,21 @@ import { API_BASE_URL } from "../config/api";
 
 type RegisterPageProps = {
   onBackToLogin: () => void;
+  onRegistrationSuccess: (message: string) => void;
 };
 
 type RegisterResponse = {
   message?: string;
 };
 
-function RegisterPage({ onBackToLogin }: RegisterPageProps) {
+function RegisterPage({
+  onBackToLogin,
+  onRegistrationSuccess,
+}: RegisterPageProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -21,6 +26,35 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     event.preventDefault();
     setError("");
     setSuccess("");
+
+    const normalizedName = name.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedName) {
+      setError("Name is required");
+      return;
+    }
+
+    if (normalizedName.length > 255) {
+      setError("Name must be 255 characters or fewer");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    if (new TextEncoder().encode(password).length > 72) {
+      setError("Password must be 72 bytes or fewer");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -29,7 +63,11 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({
+          name: normalizedName,
+          email: normalizedEmail,
+          password,
+        }),
       });
 
       const data = (await response.json()) as RegisterResponse;
@@ -42,8 +80,11 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       setName("");
       setEmail("");
       setPassword("");
-      setSuccess(data.message ?? "Registration successful. You can now log in.");
-      onBackToLogin();
+      setConfirmPassword("");
+      const successMessage =
+        data.message ?? "Registration successful. You can now log in.";
+      setSuccess(successMessage);
+      onRegistrationSuccess(successMessage);
     } catch {
       setError("Registration failed");
     } finally {
@@ -64,6 +105,8 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
+            maxLength={255}
+            autoComplete="name"
             required
           />
         </label>
@@ -74,6 +117,8 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            maxLength={255}
+            autoComplete="email"
             required
           />
         </label>
@@ -84,6 +129,20 @@ function RegisterPage({ onBackToLogin }: RegisterPageProps) {
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            minLength={8}
+            autoComplete="new-password"
+            required
+          />
+        </label>
+
+        <label>
+          Confirm password
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            minLength={8}
+            autoComplete="new-password"
             required
           />
         </label>

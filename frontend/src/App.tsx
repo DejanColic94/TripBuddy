@@ -279,7 +279,13 @@ function App() {
             <p>Keep your next escapes organized with calm, simple trip planning.</p>
           </div>
           <div className="auth-column">
-            <RegisterPage onBackToLogin={() => setAuthPage("login")} />
+            <RegisterPage
+              onBackToLogin={() => setAuthPage("login")}
+              onRegistrationSuccess={(message) => {
+                setAuthNotice(message);
+                setAuthPage("login");
+              }}
+            />
           </div>
         </div>
       ) : authPage === "forgot-password" ? (

@@ -52,17 +52,42 @@ router.post("/register", async (req, res) => {
     });
   }
 
-  if (!email || !password) {
-    return res.status(400).json({
-      message: "Email and password are required",
-    });
+  const normalizedName = name.trim();
+
+  if (normalizedName.length > 255) {
+    return res
+      .status(400)
+      .json({ message: "Name must be 255 characters or fewer" });
+  }
+
+  if (typeof email !== "string" || email.trim().length === 0) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (normalizedEmail.length > 255 || !emailPattern.test(normalizedEmail)) {
+    return res.status(400).json({ message: "Enter a valid email address" });
+  }
+
+  if (typeof password !== "string" || password.length < 8) {
+    return res
+      .status(400)
+      .json({ message: "Password must be at least 8 characters" });
+  }
+
+  if (Buffer.byteLength(password, "utf8") > 72) {
+    return res
+      .status(400)
+      .json({ message: "Password must be 72 bytes or fewer" });
   }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
       "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email, role;",
-      [name.trim(), email, hashedPassword]
+      [normalizedName, normalizedEmail, hashedPassword]
     );
 
     return res.status(201).json({
@@ -94,7 +119,12 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
+  if (
+    typeof email !== "string" ||
+    email.trim().length === 0 ||
+    typeof password !== "string" ||
+    password.length === 0
+  ) {
     return res.status(400).json({
       message: "Email and password are required",
     });
@@ -102,8 +132,8 @@ router.post("/login", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT id, name, email, password, role FROM users WHERE email = $1;",
-      [email]
+      "SELECT id, name, email, password, role FROM users WHERE LOWER(email) = $1;",
+      [email.trim().toLowerCase()]
     );
     const user = result.rows[0];
 
