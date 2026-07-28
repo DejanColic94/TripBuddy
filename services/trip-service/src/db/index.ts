@@ -18,6 +18,7 @@ export async function testConnection(): Promise<void> {
     console.log("[DB] Connected to trip database successfully");
   } catch (error) {
     console.error("[DB] Failed to connect to trip database:", error);
+    throw error;
   }
 }
 
@@ -136,6 +137,7 @@ export async function initDb(): Promise<void> {
     console.log("[DB] Expenses table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize trip database:", error);
+    throw error;
   }
 }
 
