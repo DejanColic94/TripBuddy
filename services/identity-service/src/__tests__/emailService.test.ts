@@ -1,5 +1,9 @@
 import { Resend } from "resend";
-import { sendTemporaryCredentialsEmail } from "../services/emailService";
+import {
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  sendTemporaryCredentialsEmail,
+} from "../services/emailService";
 
 jest.mock("resend", () => ({
   Resend: jest.fn(),
@@ -184,5 +188,136 @@ describe("sendTemporaryCredentialsEmail", () => {
     expect(consoleErrorSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("TempPass123!")
     );
+  });
+});
+
+describe("sendPasswordResetEmail", () => {
+  const originalEnv = process.env;
+  const sendMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = {
+      ...originalEnv,
+      RESEND_API_KEY: "re_identity_test_key",
+      EMAIL_FROM: "TripBuddy <accounts@tripbuddy.test>",
+      FRONTEND_URL: "http://localhost:5173",
+    };
+    MockedResend.mockImplementation(
+      () =>
+        ({
+          emails: {
+            send: sendMock,
+          },
+        } as unknown as Resend)
+    );
+    sendMock.mockResolvedValue({ data: { id: "email_456" }, error: null });
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("sends a single-use reset link without exposing the token separately", async () => {
+    await sendPasswordResetEmail({
+      recipientEmail: "traveler@example.com",
+      displayName: "Ana Traveler",
+      resetToken: "reset-token-123",
+    });
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "traveler@example.com",
+        subject: "Reset your TripBuddy password",
+        text: expect.stringContaining(
+          "http://localhost:5173/reset-password/reset-token-123"
+        ),
+        html: expect.stringContaining(
+          "http://localhost:5173/reset-password/reset-token-123"
+        ),
+      })
+    );
+    const email = sendMock.mock.calls[0][0];
+    expect(email.text).toContain("expires in 30 minutes");
+    expect(email.html).toContain("used only once");
+  });
+
+  it("escapes reset email content and encodes the token in the URL", async () => {
+    await sendPasswordResetEmail({
+      recipientEmail: "traveler@example.com",
+      displayName: '<Ana & "Team">',
+      resetToken: "token/with spaces",
+    });
+
+    const email = sendMock.mock.calls[0][0];
+    expect(email.html).toContain("&lt;Ana &amp; &quot;Team&quot;&gt;");
+    expect(email.text).toContain("token%2Fwith%20spaces");
+    expect(email.html).not.toContain('<Ana & "Team">');
+  });
+
+  it("throws when Resend rejects the reset email", async () => {
+    sendMock.mockResolvedValue({
+      data: null,
+      error: { message: "Email provider unavailable" },
+    });
+
+    await expect(
+      sendPasswordResetEmail({
+        recipientEmail: "traveler@example.com",
+        displayName: "Ana Traveler",
+        resetToken: "reset-token-123",
+      })
+    ).rejects.toThrow(
+      "Failed to send password reset email: Email provider unavailable"
+    );
+  });
+});
+
+describe("sendEmailVerification", () => {
+  const originalEnv = process.env;
+  const sendMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = {
+      ...originalEnv,
+      RESEND_API_KEY: "re_identity_test_key",
+      EMAIL_FROM: "TripBuddy <accounts@tripbuddy.test>",
+      FRONTEND_URL: "http://localhost:5173",
+    };
+    MockedResend.mockImplementation(
+      () =>
+        ({
+          emails: {
+            send: sendMock,
+          },
+        } as unknown as Resend)
+    );
+    sendMock.mockResolvedValue({ data: { id: "email_789" }, error: null });
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("sends an encoded, expiring verification link", async () => {
+    await sendEmailVerification({
+      recipientEmail: "traveler@example.com",
+      displayName: "Ana Traveler",
+      verificationToken: "verify/token value",
+    });
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "traveler@example.com",
+        subject: "Verify your TripBuddy email",
+        text: expect.stringContaining(
+          "http://localhost:5173/verify-email/verify%2Ftoken%20value"
+        ),
+      })
+    );
+    const emailMessage = sendMock.mock.calls[0][0];
+    expect(emailMessage.text).toContain("expires in 24 hours");
+    expect(emailMessage.html).toContain("used only once");
   });
 });

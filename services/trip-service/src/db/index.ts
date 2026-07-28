@@ -18,6 +18,7 @@ export async function testConnection(): Promise<void> {
     console.log("[DB] Connected to trip database successfully");
   } catch (error) {
     console.error("[DB] Failed to connect to trip database:", error);
+    throw error;
   }
 }
 
@@ -76,10 +77,39 @@ export async function initDb(): Promise<void> {
         token VARCHAR(255) UNIQUE NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'viewer',
         accepted_at TIMESTAMP NULL,
+        expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP
+        DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days')
+    `);
+    await pool.query(`
+      UPDATE trip_invites
+      SET expires_at = created_at + INTERVAL '7 days'
+      WHERE expires_at IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ALTER COLUMN expires_at SET NOT NULL
+    `);
     console.log("[DB] Trip invites table ensured");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS trip_guest_access (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL,
+        invite_id INTEGER NOT NULL UNIQUE REFERENCES trip_invites(id) ON DELETE CASCADE,
+        display_name VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '30 days'),
+        revoked_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[DB] Trip guest access table ensured");
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS itinerary_items (
@@ -107,6 +137,7 @@ export async function initDb(): Promise<void> {
     console.log("[DB] Expenses table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize trip database:", error);
+    throw error;
   }
 }
 

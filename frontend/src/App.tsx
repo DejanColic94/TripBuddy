@@ -2,10 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { API_BASE_URL } from "./config/api";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import GuestTripPage from "./pages/GuestTripPage";
 import LoginPage from "./pages/LoginPage";
+import ProfilePage from "./pages/ProfilePage";
 import RegisterPage from "./pages/RegisterPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import ResendVerificationPage from "./pages/ResendVerificationPage";
 import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import type { AuthUser } from "./types/auth";
 import type { Trip } from "./types/trip";
 
@@ -14,6 +20,22 @@ function getInviteTokenFromPath(pathname: string) {
     pathname.match(/^\/invite\/([^/]+)\/?$/) ||
     pathname.match(/^\/invites\/([^/]+)\/accept\/?$/);
 
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getPasswordResetTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/reset-password\/([^/]+)\/?$/);
+
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getVerificationTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/verify-email\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getGuestTokenFromPath(pathname: string) {
+  const match = pathname.match(/^\/guest\/([^/]+)\/?$/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -55,9 +77,23 @@ function App() {
   const [isAuthBootstrapping, setIsAuthBootstrapping] = useState(
     () => Boolean(localStorage.getItem("token") && !localStorage.getItem("user"))
   );
-  const [authPage, setAuthPage] = useState<"login" | "register">("login");
+  const [authPage, setAuthPage] = useState<
+    "login" | "register" | "forgot-password" | "resend-verification"
+  >("login");
+  const [authNotice, setAuthNotice] = useState("");
+  const [appPage, setAppPage] = useState<"trips" | "profile">("trips");
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [inviteToken, setInviteToken] = useState(() => getInviteTokenFromPath(window.location.pathname));
+  const [passwordResetToken, setPasswordResetToken] = useState(() =>
+    getPasswordResetTokenFromPath(window.location.pathname)
+  );
+  const [verificationToken, setVerificationToken] = useState(() =>
+    getVerificationTokenFromPath(window.location.pathname)
+  );
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [guestToken, setGuestToken] = useState(() =>
+    getGuestTokenFromPath(window.location.pathname)
+  );
 
   const openTripById = useCallback(async (tripId: number, authToken: string) => {
     try {
@@ -113,6 +149,7 @@ function App() {
     localStorage.removeItem("user");
     setCurrentUser(null);
     setSelectedTrip(null);
+    setAppPage("trips");
     setToken(null);
     setIsAuthBootstrapping(false);
   }, []);
@@ -139,7 +176,8 @@ function App() {
           typeof user.id !== "number" ||
           typeof user.name !== "string" ||
           typeof user.email !== "string" ||
-          typeof user.role !== "string"
+          typeof user.role !== "string" ||
+          typeof user.emailVerified !== "boolean"
         ) {
           throw new Error("Failed to restore session");
         }
@@ -172,6 +210,7 @@ function App() {
   const handleGoToLogin = (redirectPath: string) => {
     const redirect = redirectPath.startsWith("/") && !redirectPath.startsWith("//") ? redirectPath : "/";
 
+    handleLogout();
     window.history.pushState({}, "", `/?redirect=${encodeURIComponent(redirect)}`);
     setInviteToken(null);
     setSelectedTrip(null);
@@ -187,10 +226,67 @@ function App() {
     void openTripById(tripId, token);
   };
 
+  const handleUserUpdated = (nextToken: string, user: AuthUser) => {
+    localStorage.setItem("token", nextToken);
+    localStorage.setItem("user", JSON.stringify(user));
+    setToken(nextToken);
+    setCurrentUser(user);
+  };
+
+  const handleBackToLogin = () => {
+    window.history.pushState({}, "", "/");
+    setPasswordResetToken(null);
+    setAuthPage("login");
+  };
+
+  const handlePasswordResetSuccess = () => {
+    handleLogout();
+    window.history.pushState({}, "", "/");
+    setPasswordResetToken(null);
+    setAuthPage("login");
+    setAuthNotice("Password reset successfully. You can now log in.");
+  };
+
+  const handleVerificationBackToLogin = useCallback((notice = "") => {
+    handleLogout();
+    window.history.pushState({}, "", "/");
+    setVerificationToken(null);
+    setAuthPage("login");
+    setAuthNotice(notice);
+  }, [handleLogout]);
+
   return (
     <main className="app">
       {isAuthBootstrapping ? (
         <p className="loading-state">Restoring your session...</p>
+      ) : guestToken !== null ? (
+        <GuestTripPage
+          guestToken={guestToken}
+          onExit={() => {
+            window.history.pushState({}, "", "/");
+            setGuestToken(null);
+          }}
+        />
+      ) : verificationToken !== null ? (
+        <div className="auth-layout">
+          <div className="brand-panel">
+            <p className="eyebrow">TripBuddy</p>
+            <h1>Confirm your address.</h1>
+            <p>Finish setting up your account securely.</p>
+          </div>
+          <div className="auth-column">
+            <VerifyEmailPage
+              verificationToken={verificationToken}
+              onBackToLogin={handleVerificationBackToLogin}
+            />
+          </div>
+        </div>
+      ) : passwordResetToken !== null ? (
+        <ResetPasswordPage
+          resetToken={passwordResetToken}
+          onBackToLogin={handleBackToLogin}
+          onResetSuccess={handlePasswordResetSuccess}
+        />
       ) : inviteToken ? (
         <AcceptInvitePage
           token={token}
@@ -198,9 +294,26 @@ function App() {
           onBackToTrips={handleBackToTrips}
           onGoToLogin={handleGoToLogin}
           onOpenTrip={handleOpenAcceptedTrip}
+          onOpenGuestTrip={(newGuestToken) => {
+            window.history.pushState(
+              {},
+              "",
+              `/guest/${encodeURIComponent(newGuestToken)}`
+            );
+            setInviteToken(null);
+            setGuestToken(newGuestToken);
+          }}
         />
       ) : token ? (
-        selectedTrip ? (
+        appPage === "profile" && currentUser ? (
+          <ProfilePage
+            token={token}
+            currentUser={currentUser}
+            onBack={() => setAppPage("trips")}
+            onUnauthorized={handleLogout}
+            onUserUpdated={handleUserUpdated}
+          />
+        ) : selectedTrip ? (
           <TripDetailsPage
             token={token}
             trip={selectedTrip}
@@ -215,6 +328,7 @@ function App() {
             token={token}
             currentUser={currentUser}
             onUnauthorized={handleLogout}
+            onOpenProfile={() => setAppPage("profile")}
             onSelectTrip={setSelectedTrip}
           />
         )
@@ -226,7 +340,38 @@ function App() {
             <p>Keep your next escapes organized with calm, simple trip planning.</p>
           </div>
           <div className="auth-column">
-            <RegisterPage onBackToLogin={() => setAuthPage("login")} />
+            <RegisterPage
+              onBackToLogin={() => setAuthPage("login")}
+              onRegistrationSuccess={(message) => {
+                setAuthNotice(message);
+                setAuthPage("login");
+              }}
+            />
+          </div>
+        </div>
+      ) : authPage === "forgot-password" ? (
+        <div className="auth-layout">
+          <div className="brand-panel">
+            <p className="eyebrow">TripBuddy</p>
+            <h1>Find your way back.</h1>
+            <p>Request a secure, time-limited link to choose a new password.</p>
+          </div>
+          <div className="auth-column">
+            <ForgotPasswordPage onBackToLogin={() => setAuthPage("login")} />
+          </div>
+        </div>
+      ) : authPage === "resend-verification" ? (
+        <div className="auth-layout">
+          <div className="brand-panel">
+            <p className="eyebrow">TripBuddy</p>
+            <h1>One last step.</h1>
+            <p>Verify your email before opening your trips.</p>
+          </div>
+          <div className="auth-column">
+            <ResendVerificationPage
+              email={verificationEmail}
+              onBackToLogin={() => setAuthPage("login")}
+            />
           </div>
         </div>
       ) : (
@@ -237,7 +382,18 @@ function App() {
             <p>Keep your next escapes organized with calm, simple trip planning.</p>
           </div>
           <div className="auth-column">
-            <LoginPage onLogin={handleLogin} />
+            <LoginPage
+              onLogin={handleLogin}
+              onForgotPassword={() => {
+                setAuthNotice("");
+                setAuthPage("forgot-password");
+              }}
+              onVerificationRequired={(email) => {
+                setVerificationEmail(email);
+                setAuthPage("resend-verification");
+              }}
+              notice={authNotice}
+            />
             <button
               className="link-button auth-switch"
               type="button"

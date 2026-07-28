@@ -18,6 +18,7 @@ export async function testConnection(): Promise<void> {
     console.log("[DB] Connected to identity database successfully");
   } catch (error) {
     console.error("[DB] Failed to connect to identity database:", error);
+    throw error;
   }
 }
 
@@ -28,14 +29,25 @@ export async function initDb(): Promise<void> {
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
+        pending_email VARCHAR(255) UNIQUE,
         password VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'user',
+        email_verified BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
     await pool.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS name VARCHAR(255)
+    `);
+    await pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS pending_email VARCHAR(255)
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_pending_email_unique_idx
+      ON users (pending_email)
+      WHERE pending_email IS NOT NULL
     `);
     await pool.query(`
       UPDATE users
@@ -49,9 +61,46 @@ export async function initDb(): Promise<void> {
       ALTER TABLE users
       ALTER COLUMN name SET NOT NULL
     `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique
+      ON users (LOWER(email))
+    `);
     console.log("[DB] Users table ensured");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS password_reset_tokens_user_id_idx
+      ON password_reset_tokens (user_id)
+    `);
+    console.log("[DB] Password reset tokens table ensured");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_verification_tokens_user_id_idx
+      ON email_verification_tokens (user_id)
+    `);
+    console.log("[DB] Email verification tokens table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize identity database:", error);
+    throw error;
   }
 }
 

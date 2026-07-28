@@ -5,6 +5,7 @@ import {
   type TripInvite,
 } from "../api/invites";
 import { API_BASE_URL } from "../config/api";
+import WeatherForecast from "../components/WeatherForecast";
 import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
 
 type TripDetailsPageProps = {
@@ -655,6 +656,12 @@ function TripDetailsPage({
           </button>
         </div>
       </div>
+
+      <WeatherForecast
+        destination={currentTrip.destination}
+        startDate={currentTrip.startDate}
+        endDate={currentTrip.endDate}
+      />
 
       {tripManagementError ? <p className="error">{tripManagementError}</p> : null}
 

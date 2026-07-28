@@ -4,6 +4,9 @@ import type { AuthUser } from "../types/auth";
 
 type LoginPageProps = {
   onLogin: (token: string, user: AuthUser) => void;
+  onForgotPassword: () => void;
+  onVerificationRequired: (email: string) => void;
+  notice?: string;
 };
 
 type LoginResponse = {
@@ -12,7 +15,12 @@ type LoginResponse = {
   message?: string;
 };
 
-function LoginPage({ onLogin }: LoginPageProps) {
+function LoginPage({
+  onLogin,
+  onForgotPassword,
+  onVerificationRequired,
+  notice,
+}: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -34,6 +42,14 @@ function LoginPage({ onLogin }: LoginPageProps) {
 
       const data = (await response.json()) as LoginResponse;
 
+      if (
+        response.status === 403 &&
+        data.message === "Email verification required"
+      ) {
+        onVerificationRequired(email.trim().toLowerCase());
+        return;
+      }
+
       if (!response.ok || !data.token || !data.user) {
         setError(data.message ?? "Login failed");
         return;
@@ -53,6 +69,8 @@ function LoginPage({ onLogin }: LoginPageProps) {
         <p className="eyebrow">Welcome back</p>
         <h2>Login</h2>
       </div>
+
+      {notice ? <p className="success">{notice}</p> : null}
 
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
@@ -79,6 +97,14 @@ function LoginPage({ onLogin }: LoginPageProps) {
           {isSubmitting ? "Logging in..." : "Login"}
         </button>
       </form>
+
+      <button
+        className="link-button auth-switch"
+        type="button"
+        onClick={onForgotPassword}
+      >
+        Forgot password?
+      </button>
 
       {error ? <p className="error">{error}</p> : null}
     </section>

@@ -1,6 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Trip } from "./types/trip";
@@ -12,6 +11,7 @@ const authUser = {
   name: "Ana Traveler",
   email: "test@example.com",
   role: "user",
+  emailVerified: true,
 };
 
 const ownerParticipant = {
@@ -181,9 +181,10 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: /create account/i }));
-    await user.type(screen.getByLabelText(/^name$/i), "Ana Traveler");
-    await user.type(screen.getByLabelText(/email/i), "ana@example.com");
-    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.type(screen.getByLabelText(/^name$/i), "  Ana Traveler  ");
+    await user.type(screen.getByLabelText(/email/i), "ANA@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
     await user.click(screen.getByRole("button", { name: /^register$/i }));
 
     await waitFor(() =>
@@ -199,6 +200,24 @@ describe("TripBuddy frontend", () => {
       )
     );
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByText("User registered successfully")).toBeInTheDocument();
+  });
+
+  it("rejects mismatched registration passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(() => mockResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+    await user.type(screen.getByLabelText(/^name$/i), "Ana Traveler");
+    await user.type(screen.getByLabelText(/email/i), "ana@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "different123");
+    await user.click(screen.getByRole("button", { name: /^register$/i }));
+
+    expect(await screen.findByText("Passwords do not match")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("stores token after successful login", async () => {
@@ -272,6 +291,197 @@ describe("TripBuddy frontend", () => {
     await user.click(screen.getByRole("button", { name: "Login" }));
 
     expect(await screen.findByText("Invalid credentials")).toBeInTheDocument();
+  });
+
+  it("offers verification resend when login requires verification", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/login") && init?.method === "POST") {
+        return mockResponse({ message: "Email verification required" }, 403);
+      }
+      if (url.endsWith("/auth/resend-verification") && init?.method === "POST") {
+        return mockResponse({
+          message:
+            "If an unverified account exists for that email, a verification link has been sent",
+        });
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/email/i), "TEST@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/password/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+    await user.click(await screen.findByRole("button", { name: /resend verification email/i }));
+
+    expect(
+      await screen.findByText(/if an unverified account exists/i)
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/resend-verification"),
+      expect.objectContaining({
+        body: JSON.stringify({ email: "test@example.com" }),
+      })
+    );
+  });
+
+  it("verifies an email from a public link and returns to login", async () => {
+    window.history.pushState({}, "", "/verify-email/verification-token-123");
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/verify-email") && init?.method === "POST") {
+        return mockResponse({ message: "Email verified successfully" });
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByText("Email verified successfully. You can now log in.")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/verify-email"),
+      expect.objectContaining({
+        body: JSON.stringify({ token: "verification-token-123" }),
+      })
+    );
+  });
+
+  it("shows an expired verification-link error", async () => {
+    window.history.pushState({}, "", "/verify-email/expired-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/verify-email") && init?.method === "POST") {
+        return mockResponse(
+          { message: "Verification link is invalid or has expired" },
+          400
+        );
+      }
+      return mockResponse({});
+    });
+
+    render(<App />);
+    expect(
+      await screen.findByText("Verification link is invalid or has expired")
+    ).toBeInTheDocument();
+  });
+
+  it("requests a password reset without revealing whether the account exists", async () => {
+    const user = userEvent.setup();
+    const genericMessage =
+      "If an account exists for that email, a reset link has been sent";
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          input.toString().endsWith("/auth/forgot-password") &&
+          init?.method === "POST"
+        ) {
+          return mockResponse({ message: genericMessage });
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /forgot password/i }));
+    await user.type(screen.getByLabelText(/email/i), "TRAVELER@EXAMPLE.COM");
+    await user.click(screen.getByRole("button", { name: /send reset link/i }));
+
+    expect(await screen.findByText(genericMessage)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/forgot-password"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "traveler@example.com" }),
+      })
+    );
+  });
+
+  it("resets a password from a public reset link and returns to login", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/reset-password/reset-token-123");
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          input.toString().endsWith("/auth/reset-password") &&
+          init?.method === "POST"
+        ) {
+          return mockResponse({ message: "Password reset successfully" });
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "new-password-456"
+    );
+    await user.click(screen.getByRole("button", { name: /^reset password$/i }));
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Password reset successfully. You can now log in.")
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/reset-password"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          token: "reset-token-123",
+          newPassword: "new-password-456",
+        }),
+      })
+    );
+  });
+
+  it("shows an invalid or expired reset-link error", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/reset-password/expired-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/reset-password") && init?.method === "POST") {
+        return mockResponse(
+          { message: "Reset link is invalid or has expired" },
+          400
+        );
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "new-password-456"
+    );
+    await user.click(screen.getByRole("button", { name: /^reset password$/i }));
+
+    expect(
+      await screen.findByText("Reset link is invalid or has expired")
+    ).toBeInTheDocument();
+  });
+
+  it("rejects mismatched reset passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/reset-password/reset-token-123");
+    const fetchMock = vi.fn(() => mockResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "different-password"
+    );
+    await user.click(screen.getByRole("button", { name: /^reset password$/i }));
+
+    expect(await screen.findByText("New passwords do not match")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fetches and displays trips when token exists", async () => {
@@ -511,6 +721,261 @@ describe("TripBuddy frontend", () => {
 
     expect(localStorage.getItem("token")).toBeNull();
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+  });
+
+  it("opens the profile and displays the current user", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url) => {
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+
+    expect(screen.getByRole("heading", { name: /my profile/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/name/i)).toHaveValue("Ana Traveler");
+    expect(screen.getByLabelText(/new email/i)).toHaveValue("test@example.com");
+    expect(screen.getByLabelText(/role/i)).toHaveValue("user");
+  });
+
+  it("updates the profile name and stored user", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const updatedUser = { ...authUser, name: "Ana Updated" };
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ token: "refreshed-token", user: updatedUser });
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const nameInput = screen.getByLabelText(/name/i);
+    await user.clear(nameInput);
+    await user.type(nameInput, "  Ana Updated  ");
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByText("Profile updated")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Ana Updated");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(updatedUser);
+    expect(localStorage.getItem("token")).toBe("refreshed-token");
+  });
+
+  it("shows a profile update error returned by the server", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ message: "Failed to update profile" }, 500);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByText("Failed to update profile")).toBeInTheDocument();
+  });
+
+  it("logs out when a profile update is unauthorized", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+        return mockResponse({ message: "Unauthorized" }, 401);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.click(screen.getByRole("button", { name: /save profile/i }));
+
+    expect(await screen.findByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(localStorage.getItem("token")).toBeNull();
+  });
+
+  it("requests email verification while keeping the current session", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+
+        if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
+          return mockResponse({
+            message:
+              "Verification email sent. Your current email remains active until you confirm the new address",
+          });
+        }
+
+        if (url.endsWith("/trips")) {
+          return mockResponse([]);
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const emailInput = screen.getByLabelText(/new email/i);
+    await user.clear(emailInput);
+    await user.type(emailInput, "UPDATED@EXAMPLE.COM");
+    await user.type(screen.getByLabelText(/^current password$/i), "password123");
+    await user.click(screen.getByRole("button", { name: /change email/i }));
+
+    expect(
+      await screen.findByText(/current email remains active/i)
+    ).toBeInTheDocument();
+    expect(emailInput).toHaveValue(authUser.email);
+    expect(localStorage.getItem("token")).toBe("test-token");
+    expect(JSON.parse(localStorage.getItem("user") ?? "{}")).toEqual(authUser);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/me/email"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          email: "updated@example.com",
+          currentPassword: "password123",
+        }),
+      })
+    );
+  });
+
+  it("shows an incorrect-password error when changing email", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/auth/me/email") && init?.method === "PATCH") {
+        return mockResponse({ message: "Current password is incorrect" }, 400);
+      }
+
+      if (url.endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.clear(screen.getByLabelText(/new email/i));
+    await user.type(screen.getByLabelText(/new email/i), "updated@example.com");
+    await user.type(
+      screen.getByLabelText(/^current password$/i),
+      "wrong-password"
+    );
+    await user.click(screen.getByRole("button", { name: /change email/i }));
+
+    expect(
+      await screen.findByText("Current password is incorrect")
+    ).toBeInTheDocument();
+  });
+
+  it("changes password and clears all password fields", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+
+        if (url.endsWith("/auth/me/password") && init?.method === "PATCH") {
+          return mockResponse({ message: "Password updated" });
+        }
+
+        if (url.endsWith("/trips")) {
+          return mockResponse([]);
+        }
+
+        return mockResponse({});
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    const currentPasswordInput = screen.getByLabelText(
+      /current password for password change/i
+    );
+    const newPasswordInput = screen.getByLabelText(/^new password$/i);
+    const confirmPasswordInput = screen.getByLabelText(/confirm new password/i);
+
+    await user.type(currentPasswordInput, "password123");
+    await user.type(newPasswordInput, "new-password-456");
+    await user.type(confirmPasswordInput, "new-password-456");
+    await user.click(screen.getByRole("button", { name: /^change password$/i }));
+
+    expect(await screen.findByText("Password updated")).toBeInTheDocument();
+    expect(currentPasswordInput).toHaveValue("");
+    expect(newPasswordInput).toHaveValue("");
+    expect(confirmPasswordInput).toHaveValue("");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/me/password"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword: "password123",
+          newPassword: "new-password-456",
+        }),
+      })
+    );
+  });
+
+  it("rejects mismatched new passwords before calling the API", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (input.toString().endsWith("/trips")) {
+        return mockResponse([]);
+      }
+
+      return mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /my profile/i }));
+    await user.type(
+      screen.getByLabelText(/current password for password change/i),
+      "password123"
+    );
+    await user.type(screen.getByLabelText(/^new password$/i), "new-password-456");
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "different-password"
+    );
+    await user.click(screen.getByRole("button", { name: /^change password$/i }));
+
+    expect(await screen.findByText("New passwords do not match")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        url.toString().endsWith("/auth/me/password")
+      )
+    ).toBe(false);
   });
 
   it("opens trip details and returns to trips list", async () => {
@@ -825,12 +1290,23 @@ describe("TripBuddy frontend", () => {
     expect(await screen.findByText("Participant already exists")).toBeInTheDocument();
   });
 
-  it("shows success when accepting an invite", async () => {
+  it("previews and accepts an invite for the signed-in account", async () => {
+    const user = userEvent.setup();
     setAuthenticatedSession();
     window.history.pushState({}, "", "/invite/invite-token-123");
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
+      if (url.endsWith("/trips/invites/invite-token-123") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "friend@example.com",
+          role: "viewer",
+          accountExists: true,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/invite-token-123/accept") && init?.method === "POST") {
         return mockResponse(acceptedInvite);
       }
@@ -841,8 +1317,9 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
+    expect(await screen.findByText("Lisbon Spring")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept invitation" }));
     expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
-    expect(screen.getByText("This trip was added to your account.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open accepted trip/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/trips/invites/invite-token-123/accept"),
@@ -852,10 +1329,21 @@ describe("TripBuddy frontend", () => {
     );
   });
 
-  it("accepts a public invite without an Authorization header when logged out", async () => {
+  it("creates an account with explicit details for a new invited email", async () => {
+    const user = userEvent.setup();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
+      if (url.endsWith("/trips/invites/public-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "friend@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/public-token/accept") && init?.method === "POST") {
         return mockResponse({
           ...acceptedInvite,
@@ -871,47 +1359,79 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Your TripBuddy account has been created")).toBeInTheDocument();
-    expect(screen.getByText(/Temporary login credentials were sent to friend@example.com/)).toBeInTheDocument();
-    expect(screen.queryByText(/password123/i)).not.toBeInTheDocument();
+    await user.type(await screen.findByLabelText(/^name$/i), "New Traveler");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /create account and join/i }));
+
+    expect(
+      await screen.findByText("Account created and invitation accepted")
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/trips/invites/public-token/accept"),
-      expect.objectContaining({ headers: {} })
+      expect.objectContaining({
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "New Traveler",
+          password: "password123",
+        }),
+      })
     );
   });
 
-  it("does not duplicate invite acceptance during Strict Mode remount", async () => {
-    setAuthenticatedSession();
-    window.history.pushState({}, "", "/invite/strict-token");
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = input.toString();
-
-      if (url.endsWith("/trips/invites/strict-token/accept") && init?.method === "POST") {
-        return mockResponse({ ...acceptedInvite, token: "strict-token" });
+  it("opens a trip with read-only guest access", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/invite/guest-token");
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/guest-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "guest@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
       }
-
+      if (url.endsWith("/trips/invites/guest-token/guest") && init?.method === "POST") {
+        return mockResponse({
+          tripId: 1,
+          displayName: "Guest Traveler",
+          guestToken: "guest-access-token",
+          expiresInDays: 30,
+        }, 201);
+      }
+      if (url.endsWith("/trips/guests/guest-access-token/trip")) {
+        return mockResponse({
+          guest: { displayName: "Guest Traveler", expiresAt: "2030-01-01" },
+          trip: {
+            name: "Lisbon Spring",
+            description: "Shared plan",
+            destination: "Lisbon",
+            startDate: null,
+            endDate: null,
+          },
+          itinerary: [],
+          expenses: [],
+          permissions: { readOnly: true },
+        });
+      }
       return mockResponse({});
     });
-    vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <StrictMode>
-        <App />
-      </StrictMode>
-    );
+    render(<App />);
+    await user.type(await screen.findByLabelText(/guest display name/i), "Guest Traveler");
+    await user.click(screen.getByRole("button", { name: /continue as guest/i }));
 
-    expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
-    const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
-      url.toString().endsWith("/trips/invites/strict-token/accept")
-    );
-    expect(acceptCalls).toHaveLength(1);
+    expect(await screen.findByText("Read-only guest access")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Lisbon Spring" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/guest/guest-access-token");
   });
 
   it("shows an error for an invalid invite", async () => {
-    setAuthenticatedSession();
     window.history.pushState({}, "", "/invite/bad-token");
     mockFetch((url, init) => {
-      if (url.endsWith("/trips/invites/bad-token/accept") && init?.method === "POST") {
+      if (url.endsWith("/trips/invites/bad-token") && !init?.method) {
         return mockResponse({ error: "Invite not found" }, 404);
       }
 
@@ -921,15 +1441,14 @@ describe("TripBuddy frontend", () => {
     render(<App />);
 
     expect(await screen.findByText("Invitation not found")).toBeInTheDocument();
-    expect(screen.getByText("The link may be invalid or no longer available.")).toBeInTheDocument();
+    expect(screen.getByText("The link is invalid or no longer available.")).toBeInTheDocument();
   });
 
-  it("shows an error for an already accepted invite", async () => {
-    setAuthenticatedSession();
-    window.history.pushState({}, "", "/invites/used-token/accept");
+  it("shows an expired invitation error", async () => {
+    window.history.pushState({}, "", "/invites/expired-token/accept");
     mockFetch((url, init) => {
-      if (url.endsWith("/trips/invites/used-token/accept") && init?.method === "POST") {
-        return mockResponse({ error: "Invite already accepted" }, 409);
+      if (url.endsWith("/trips/invites/expired-token") && !init?.method) {
+        return mockResponse({ error: "Invite has expired" }, 410);
       }
 
       return mockResponse({});
@@ -937,7 +1456,8 @@ describe("TripBuddy frontend", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Invitation already accepted")).toBeInTheDocument();
+    expect(await screen.findByText("Invitation expired")).toBeInTheDocument();
+    expect(screen.getByText(/ask the trip owner/i)).toBeInTheDocument();
   });
 
   it("does not call the API for a blank invite token", async () => {
@@ -957,14 +1477,18 @@ describe("TripBuddy frontend", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
+      if (url.endsWith("/trips/invites/existing-account-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "test@example.com",
+          role: "viewer",
+          accountExists: true,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/existing-account-token/accept") && init?.method === "POST") {
-        const headers = init.headers as Record<string, string>;
-
-        if (headers.Authorization === "Bearer test-token") {
-          return mockResponse({ ...acceptedInvite, token: "existing-account-token" });
-        }
-
-        return mockResponse({ error: "Login required for invited email" }, 401);
+        return mockResponse({ ...acceptedInvite, token: "existing-account-token" });
       }
 
       if (url.endsWith("/auth/login") && init?.method === "POST") {
@@ -981,17 +1505,28 @@ describe("TripBuddy frontend", () => {
     await user.type(screen.getByLabelText(/password/i), "password123");
     await user.click(screen.getByRole("button", { name: "Login" }));
 
+    await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
     expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
     const acceptCalls = fetchMock.mock.calls.filter(([url]) =>
       url.toString().endsWith("/trips/invites/existing-account-token/accept")
     );
-    expect(acceptCalls).toHaveLength(2);
+    expect(acceptCalls).toHaveLength(1);
   });
 
   it("preserves the accepted trip destination for newly created accounts", async () => {
     const user = userEvent.setup();
     window.history.pushState({}, "", "/invite/new-account-token");
     mockFetch((url, init) => {
+      if (url.endsWith("/trips/invites/new-account-token") && !init?.method) {
+        return mockResponse({
+          tripId: 1,
+          tripName: "Lisbon Spring",
+          email: "new@example.com",
+          role: "viewer",
+          accountExists: false,
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        });
+      }
       if (url.endsWith("/trips/invites/new-account-token/accept") && init?.method === "POST") {
         return mockResponse({
           ...acceptedInvite,
@@ -1004,7 +1539,11 @@ describe("TripBuddy frontend", () => {
     });
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: /go to login/i }));
+    await user.type(await screen.findByLabelText(/^name$/i), "New Traveler");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
+    await user.click(screen.getByRole("button", { name: /create account and join/i }));
+    await user.click(await screen.findByRole("button", { name: /log in and open trip/i }));
 
     expect(window.location.search).toBe("?redirect=%2F%3FopenTrip%3D1");
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
