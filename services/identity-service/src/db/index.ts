@@ -18,6 +18,7 @@ export async function testConnection(): Promise<void> {
     console.log("[DB] Connected to identity database successfully");
   } catch (error) {
     console.error("[DB] Failed to connect to identity database:", error);
+    throw error;
   }
 }
 
@@ -99,6 +100,7 @@ export async function initDb(): Promise<void> {
     console.log("[DB] Email verification tokens table ensured");
   } catch (error) {
     console.error("[DB] Failed to initialize identity database:", error);
+    throw error;
   }
 }
 

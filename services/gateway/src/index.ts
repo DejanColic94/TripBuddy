@@ -64,6 +64,46 @@ app.use(
   })
 );
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Gateway running on port ${PORT}`);
+});
+
+let isShuttingDown = false;
+
+function shutdown(signal: string, exitCode = 0): void {
+  if (isShuttingDown) {
+    return;
+  }
+
+  isShuttingDown = true;
+  console.log(`[Shutdown] ${signal} received; closing gateway`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("[Shutdown] Gateway did not close within 10 seconds");
+    process.exit(1);
+  }, 10_000);
+  forceExitTimer.unref();
+
+  server.close((error) => {
+    clearTimeout(forceExitTimer);
+
+    if (error) {
+      console.error("[Shutdown] Failed to close gateway:", error);
+      process.exit(1);
+    }
+
+    console.log("[Shutdown] Gateway closed");
+    process.exit(exitCode);
+  });
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("uncaughtException", (error) => {
+  console.error("[Process] Uncaught exception:", error);
+  shutdown("uncaughtException", 1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[Process] Unhandled rejection:", reason);
+  shutdown("unhandledRejection", 1);
 });
