@@ -2,6 +2,10 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
+import {
+  ExchangeRateProviderError,
+  convertCurrency,
+} from "./exchangeRateService";
 import { WeatherProviderError, getWeatherForecast } from "./weatherService";
 
 const app = express();
@@ -50,6 +54,43 @@ app.get("/weather", async (req, res) => {
     }
     console.error("[INTEGRATION] Weather lookup failed:", error);
     return res.status(500).json({ error: "Failed to load weather forecast" });
+  }
+});
+
+app.get("/exchange-rate", async (req, res) => {
+  const from =
+    typeof req.query.from === "string" ? req.query.from.trim().toUpperCase() : "";
+  const to =
+    typeof req.query.to === "string" ? req.query.to.trim().toUpperCase() : "";
+  const amountValue =
+    typeof req.query.amount === "string" ? req.query.amount.trim() : "";
+  const amount = Number(amountValue);
+  const currencyPattern = /^[A-Z]{3}$/;
+
+  if (!currencyPattern.test(from) || !currencyPattern.test(to)) {
+    return res.status(400).json({
+      error: "from and to must be three-letter currency codes",
+    });
+  }
+  if (
+    !amountValue ||
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    amount > 1_000_000_000
+  ) {
+    return res.status(400).json({
+      error: "amount must be greater than 0 and at most 1000000000",
+    });
+  }
+
+  try {
+    return res.status(200).json(await convertCurrency(from, to, amount));
+  } catch (error) {
+    if (error instanceof ExchangeRateProviderError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("[INTEGRATION] Currency conversion failed:", error);
+    return res.status(500).json({ error: "Failed to convert currency" });
   }
 });
 
