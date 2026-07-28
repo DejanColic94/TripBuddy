@@ -7,7 +7,11 @@ import { WeatherProviderError, getWeatherForecast } from "./weatherService";
 const app = express();
 app.use(cors());
 app.use(helmet());
-app.use(morgan("dev"));
+app.use(
+  morgan(process.env.NODE_ENV === "production" ? "combined" : "dev", {
+    skip: (req) => req.path === "/health",
+  })
+);
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
