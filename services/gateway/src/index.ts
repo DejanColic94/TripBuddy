@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import { rateLimit } from "express-rate-limit";
 import {
   createProxyMiddleware,
   fixRequestBody,
@@ -19,8 +20,24 @@ const IDENTITY_SERVICE_URL =
 const TRIP_SERVICE_URL = process.env.TRIP_SERVICE_URL || "http://localhost:4002";
 const INTEGRATION_SERVICE_URL =
   process.env.INTEGRATION_SERVICE_URL || "http://localhost:4003";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const isProduction = process.env.NODE_ENV === "production";
 
-app.use(cors());
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
+app.use(
+  cors(
+    isProduction
+      ? {
+          origin: FRONTEND_URL,
+          methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+          allowedHeaders: ["Authorization", "Content-Type"],
+        }
+      : undefined
+  )
+);
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json());
@@ -28,6 +45,34 @@ app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ service: "gateway", status: "ok" });
 });
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { message: "Too many requests; please try again later" },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { message: "Too many authentication attempts; please try again later" },
+});
+
+app.use(apiLimiter);
+app.use(
+  [
+    "/auth/login",
+    "/auth/register",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/auth/resend-verification",
+  ],
+  authLimiter
+);
 
 app.use(
   "/auth",

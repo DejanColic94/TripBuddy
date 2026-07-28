@@ -13,6 +13,7 @@ export function validateEnvironment(): void {
     "IDENTITY_SERVICE_URL",
     "TRIP_SERVICE_URL",
     "INTEGRATION_SERVICE_URL",
+    "FRONTEND_URL",
   ];
   const invalidVariables = requiredVariables.filter((name) => {
     const value = process.env[name]?.trim();

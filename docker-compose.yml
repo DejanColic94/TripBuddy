@@ -26,6 +26,7 @@ services:
       IDENTITY_SERVICE_URL: http://identity-service:4001
       TRIP_SERVICE_URL: http://trip-service:4002
       INTEGRATION_SERVICE_URL: http://integration-service:4003
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
       - ./services/gateway:/app
       - /app/node_modules
