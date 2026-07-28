@@ -1,14 +1,15 @@
+import "./env";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import dotenv from "dotenv";
 import {
   createProxyMiddleware,
   fixRequestBody,
 } from "http-proxy-middleware";
+import { validateEnvironment } from "./env";
 
-dotenv.config();
+validateEnvironment();
 
 const app = express();
 const PORT = process.env.GATEWAY_PORT || 4000;

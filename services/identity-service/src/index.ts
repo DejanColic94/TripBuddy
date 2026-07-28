@@ -1,6 +1,7 @@
 import "./env";
 import app from "./app";
 import pool, { initDb, testConnection } from "./db";
+import { validateEnvironment } from "./env";
 
 const PORT = process.env.IDENTITY_SERVICE_PORT || 4001;
 
@@ -8,6 +9,7 @@ let server: ReturnType<typeof app.listen> | undefined;
 let isShuttingDown = false;
 
 async function start(): Promise<void> {
+  validateEnvironment();
   await testConnection();
   await initDb();
 

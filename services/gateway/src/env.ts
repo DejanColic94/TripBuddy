@@ -10,15 +10,9 @@ export function validateEnvironment(): void {
   }
 
   const requiredVariables = [
-    "IDENTITY_DB_HOST",
-    "IDENTITY_DB_NAME",
-    "IDENTITY_DB_USER",
-    "IDENTITY_DB_PASSWORD",
-    "IDENTITY_JWT_SECRET",
-    "INTERNAL_SERVICE_SECRET",
-    "RESEND_API_KEY",
-    "EMAIL_FROM",
-    "FRONTEND_URL",
+    "IDENTITY_SERVICE_URL",
+    "TRIP_SERVICE_URL",
+    "INTEGRATION_SERVICE_URL",
   ];
   const invalidVariables = requiredVariables.filter((name) => {
     const value = process.env[name]?.trim();

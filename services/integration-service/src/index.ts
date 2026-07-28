@@ -1,7 +1,8 @@
-import dotenv from "dotenv";
+import "./env";
 import app from "./app";
+import { validateEnvironment } from "./env";
 
-dotenv.config();
+validateEnvironment();
 
 const PORT = Number(process.env.INTEGRATION_SERVICE_PORT) || 4003;
 
