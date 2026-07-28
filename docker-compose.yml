@@ -11,7 +11,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
 
   gateway:
     build:
@@ -29,9 +30,18 @@ services:
       - ./services/gateway:/app
       - /app/node_modules
     depends_on:
-      - identity-service
-      - trip-service
-      - integration-service
+      identity-service:
+        condition: service_healthy
+      trip-service:
+        condition: service_healthy
+      integration-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   integration-service:
     build:
@@ -45,6 +55,12 @@ services:
     volumes:
       - ./services/integration-service:/app
       - /app/node_modules
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4003/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   identity-service:
     build:
@@ -71,6 +87,12 @@ services:
     depends_on:
       identity-db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4001/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   trip-service:
     build:
@@ -98,6 +120,12 @@ services:
     depends_on:
       trip-db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4002/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   identity-db:
     image: postgres:16
