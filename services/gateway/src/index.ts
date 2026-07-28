@@ -39,7 +39,11 @@ app.use(
   )
 );
 app.use(helmet());
-app.use(morgan("dev"));
+app.use(
+  morgan(isProduction ? "combined" : "dev", {
+    skip: (req) => req.path === "/health",
+  })
+);
 app.use(express.json());
 
 app.get("/health", (_req, res) => {

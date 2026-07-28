@@ -11,15 +11,14 @@ const app = express();
 
 app.use(cors());
 app.use(helmet());
-app.use(morgan("dev"));
+app.use(
+  morgan(process.env.NODE_ENV === "production" ? "combined" : "dev", {
+    skip: (req) => req.path === "/health",
+  })
+);
 app.use(express.json());
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-app.use((req, _res, next) => {
-  console.log(`[IDENTITY] ${req.method} ${req.url}`);
-  next();
-});
 
 app.get("/health", (_req, res) => {
   res.json({ service: "identity-service", status: "ok" });
