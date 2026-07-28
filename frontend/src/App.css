@@ -730,6 +730,41 @@ button:disabled {
   line-height: 1;
 }
 
+.expense-total-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.conversion-currency {
+  display: grid;
+  gap: 6px;
+  color: #52635f;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.conversion-currency select {
+  min-width: 100px;
+}
+
+.expense-subtotals,
+.conversion-note {
+  margin: 14px 0 0;
+  color: #52635f;
+}
+
+.conversion-note {
+  font-size: 0.82rem;
+}
+
+.conversion-error {
+  margin-bottom: 0;
+}
+
 .itinerary-list {
   display: grid;
   gap: 16px;
@@ -1055,6 +1090,15 @@ button:disabled {
   .expense-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .expense-total-heading {
+    flex-direction: column;
+  }
+
+  .conversion-currency,
+  .conversion-currency select {
+    width: 100%;
   }
 
   .participant-card {

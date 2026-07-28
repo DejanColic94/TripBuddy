@@ -1073,6 +1073,69 @@ describe("TripBuddy frontend", () => {
     expect(within(participantsSection).getByText("viewer")).toBeInTheDocument();
   });
 
+  it("converts mixed expense currencies into a selected total", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+      if (url.endsWith("/trips/1/expenses")) {
+        return mockResponse([
+          {
+            id: 1,
+            tripId: 1,
+            title: "Museum",
+            amount: 10,
+            currency: "EUR",
+            category: "Activities",
+            createdAt: "2026-07-28T10:00:00.000Z",
+          },
+          {
+            id: 2,
+            tripId: 1,
+            title: "Lunch",
+            amount: 20,
+            currency: "USD",
+            category: "Food",
+            createdAt: "2026-07-28T11:00:00.000Z",
+          },
+        ]);
+      }
+      if (url.includes("/integrations/exchange-rate?")) {
+        return mockResponse({
+          from: "USD",
+          to: "EUR",
+          amount: 20,
+          rate: 0.9,
+          convertedAmount: 18,
+          date: "2026-07-28",
+          attribution: "Exchange rates by Frankfurter.dev",
+        });
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+
+    expect((await screen.findAllByText("€28.00")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Original totals:/)).toHaveTextContent("€10.00 · $20.00");
+    expect(screen.getByText(/Approximate reference rates/)).toHaveTextContent(
+      "2026-07-28"
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/integrations/exchange-rate?from=USD&to=EUR&amount=20"
+      ),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
   it("renders trip invites in trip details", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();

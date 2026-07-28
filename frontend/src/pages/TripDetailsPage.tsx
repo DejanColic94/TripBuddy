@@ -6,6 +6,7 @@ import {
 } from "../api/invites";
 import { API_BASE_URL } from "../config/api";
 import WeatherForecast from "../components/WeatherForecast";
+import { useExpenseConversion } from "../hooks/useExpenseConversion";
 import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
 
 type TripDetailsPageProps = {
@@ -103,6 +104,7 @@ function TripDetailsPage({
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCurrency, setExpenseCurrency] = useState("EUR");
   const [expenseCategory, setExpenseCategory] = useState("");
+  const [conversionCurrency, setConversionCurrency] = useState("EUR");
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
@@ -125,8 +127,16 @@ function TripDetailsPage({
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSuccessMessage, setExpenseSuccessMessage] = useState("");
 
-  const totalExpenseAmount = expenses.reduce((total, expense) => total + expense.amount, 0);
-  const totalExpenseCurrency = expenses[0]?.currency ?? expenseCurrency;
+  const {
+    convertedTotal: convertedExpenseTotal,
+    rateDate: conversionRateDate,
+    isLoading: isConversionLoading,
+    error: conversionError,
+    subtotals: expenseSubtotals,
+    currencies: expenseCurrencies,
+  } = useExpenseConversion(expenses, conversionCurrency);
+  const singleExpenseCurrency =
+    expenseCurrencies.length === 1 ? expenseCurrencies[0] : null;
   const inviteBaseUrl = `${window.location.origin}/invites`;
 
   const loadTripDetails = useCallback(async () => {
@@ -763,7 +773,16 @@ function TripDetailsPage({
             </article>
             <article className="summary-card">
               <p>Total Expenses</p>
-              <strong>{formatExpenseAmount(summary.totalExpenses, totalExpenseCurrency)}</strong>
+              <strong>
+                {convertedExpenseTotal !== null
+                  ? formatExpenseAmount(convertedExpenseTotal, conversionCurrency)
+                  : singleExpenseCurrency
+                    ? formatExpenseAmount(
+                        expenseSubtotals[singleExpenseCurrency],
+                        singleExpenseCurrency
+                      )
+                    : "Mixed currencies"}
+              </strong>
             </article>
             <article className="summary-card">
               <p>Expense Count</p>
@@ -1035,8 +1054,56 @@ function TripDetailsPage({
 
         <section className="expenses-section">
           <div className="expense-total-card">
-            <p className="eyebrow">Total expenses</p>
-            <strong>{formatExpenseAmount(totalExpenseAmount, totalExpenseCurrency)}</strong>
+            <div className="expense-total-heading">
+              <div>
+                <p className="eyebrow">Estimated total</p>
+                <strong>
+                  {isConversionLoading
+                    ? "Converting..."
+                    : convertedExpenseTotal !== null
+                      ? formatExpenseAmount(
+                          convertedExpenseTotal,
+                          conversionCurrency
+                        )
+                      : "Unavailable"}
+                </strong>
+              </div>
+
+              <label className="conversion-currency">
+                Display currency
+                <select
+                  value={conversionCurrency}
+                  onChange={(event) => setConversionCurrency(event.target.value)}
+                >
+                  {["EUR", "USD", "GBP", "CHF", "RSD", "CAD", "AUD", "JPY"].map(
+                    (currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+            </div>
+
+            {expenseCurrencies.length > 0 ? (
+              <p className="expense-subtotals">
+                Original totals:{" "}
+                {expenseCurrencies
+                  .map((currency) =>
+                    formatExpenseAmount(expenseSubtotals[currency], currency)
+                  )
+                  .join(" · ")}
+              </p>
+            ) : null}
+            {conversionRateDate ? (
+              <p className="conversion-note">
+                Approximate reference rates for {conversionRateDate} · Frankfurter
+              </p>
+            ) : null}
+            {conversionError ? (
+              <p className="error conversion-error">{conversionError}</p>
+            ) : null}
           </div>
 
           <div className="section-heading">
