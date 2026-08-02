@@ -93,7 +93,9 @@ type CreateItineraryItemBody = {
   scheduledDate?: string;
 };
 
-type TripDateRangeRow = Pick<TripRow, "start_date" | "end_date">;
+type TripDateRangeRow = {
+  scheduled_date_in_range: boolean;
+};
 
 type ExpenseRow = {
   id: number;
@@ -1368,17 +1370,17 @@ router.post(
 
       if (scheduledDate !== undefined) {
         const tripResult = await pool.query<TripDateRangeRow>(
-          "SELECT start_date, end_date FROM trips WHERE id = $1",
-          [tripId]
+          `
+            SELECT start_date IS NOT NULL
+              AND end_date IS NOT NULL
+              AND $2::date BETWEEN start_date AND end_date AS scheduled_date_in_range
+            FROM trips
+            WHERE id = $1
+          `,
+          [tripId, scheduledDate]
         );
-        const tripDates = tripResult.rows[0];
 
-        if (
-          !tripDates?.start_date ||
-          !tripDates.end_date ||
-          scheduledDate < tripDates.start_date ||
-          scheduledDate > tripDates.end_date
-        ) {
+        if (!tripResult.rows[0]?.scheduled_date_in_range) {
           return res.status(400).json({
             error: "scheduledDate must be within the trip date range",
           });
