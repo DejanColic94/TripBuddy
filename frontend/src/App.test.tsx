@@ -684,6 +684,8 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByRole("heading", { name: /add itinerary item/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /add expense/i })).toBeInTheDocument();
     expect(screen.getByText(/user access/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^remove$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
   });
 
   it("shows a guest the full trip page without write controls", async () => {
@@ -711,6 +713,8 @@ describe("TripBuddy frontend", () => {
     expect(screen.queryByRole("heading", { name: /create invite/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /add itinerary item/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /add expense/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^remove$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
   });
 
   it("shows an error when an owner update fails", async () => {
@@ -1184,6 +1188,102 @@ describe("TripBuddy frontend", () => {
     expect(within(participantsSection).getByText("admin")).toBeInTheDocument();
     expect(within(participantsSection).getByText("Milan Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("user")).toBeInTheDocument();
+  });
+
+  it("allows an admin to remove participants, itinerary items, and expenses", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let participants = [ownerParticipant, userParticipant];
+    let itineraryItems = [
+      {
+        id: 21,
+        tripId: 1,
+        title: "City tour",
+        description: "Walk through the old town",
+        scheduledDate: "2026-06-02",
+        createdAt: "2026-05-01T10:00:00.000Z",
+      },
+    ];
+    let expenses = [
+      {
+        id: 31,
+        tripId: 1,
+        title: "Lunch",
+        amount: 25,
+        currency: "EUR",
+        category: "Food",
+        createdAt: "2026-05-01T11:00:00.000Z",
+      },
+    ];
+
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/1/participants/8") && init?.method === "DELETE") {
+        participants = participants.filter((participant) => participant.userId !== 8);
+        return mockResponse({}, 204);
+      }
+      if (url.endsWith("/trips/1/itinerary/21") && init?.method === "DELETE") {
+        itineraryItems = [];
+        return mockResponse({}, 204);
+      }
+      if (url.endsWith("/trips/1/expenses/31") && init?.method === "DELETE") {
+        expenses = [];
+        return mockResponse({}, 204);
+      }
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+      if (url.endsWith("/trips/1/participants")) {
+        return mockResponse(participants);
+      }
+      if (url.endsWith("/trips/1/itinerary")) {
+        return mockResponse(itineraryItems);
+      }
+      if (url.endsWith("/trips/1/expenses")) {
+        return mockResponse(expenses);
+      }
+      if (url.endsWith("/trips/1/summary")) {
+        return mockResponse({
+          itineraryCount: 1,
+          expenseCount: 1,
+          totalExpenses: 25,
+          tripDurationDays: 4,
+        });
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+
+    const participantCard = (await screen.findByText("Milan Traveler")).closest("li") as HTMLElement;
+    await user.click(within(participantCard).getByRole("button", { name: /^remove$/i }));
+    await waitFor(() => expect(screen.queryByText("Milan Traveler")).not.toBeInTheDocument());
+
+    const itineraryCard = (await screen.findByText("City tour")).closest("li") as HTMLElement;
+    await user.click(within(itineraryCard).getByRole("button", { name: /^delete$/i }));
+    await waitFor(() => expect(screen.queryByText("City tour")).not.toBeInTheDocument());
+
+    const expenseCard = (await screen.findByText("Lunch")).closest("li") as HTMLElement;
+    await user.click(within(expenseCard).getByRole("button", { name: /^delete$/i }));
+    await waitFor(() => expect(screen.queryByText("Lunch")).not.toBeInTheDocument());
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/1/participants/8"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/1/itinerary/21"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/1/expenses/31"),
+      expect.objectContaining({ method: "DELETE" })
+    );
   });
 
   it("converts mixed expense currencies into a selected total", async () => {

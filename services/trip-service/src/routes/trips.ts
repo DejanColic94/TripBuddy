@@ -359,7 +359,7 @@ function mapExpense(expense: ExpenseRow) {
 }
 
 type TripAuthorization =
-  | { allowed: true; role: TripRole }
+  | { allowed: true; role: TripRole; createdBy: number }
   | { allowed: false; status: 403 | 404 };
 
 async function authorizeTrip(
@@ -392,7 +392,7 @@ async function authorizeTrip(
     return { allowed: false, status: 403 };
   }
 
-  return { allowed: true, role };
+  return { allowed: true, role, createdBy: trip.created_by };
 }
 
 function sendTripAuthorizationError(
@@ -1314,6 +1314,53 @@ router.post(
   }
 );
 
+router.delete(
+  "/:id/participants/:userId",
+  async (req: Request<{ id: string; userId: string }>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const participantUserId = Number(req.params.userId);
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (!Number.isInteger(participantUserId)) {
+      return res.status(400).json({ error: "Invalid participant user id" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      if (participantUserId === authorization.createdBy) {
+        return res.status(400).json({ error: "Trip creator cannot be removed" });
+      }
+
+      const result = await pool.query(
+        `DELETE FROM trip_participants
+         WHERE trip_id = $1 AND user_id = $2
+         RETURNING user_id`,
+        [tripId, participantUserId]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Participant not found" });
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to remove trip participant:", error);
+      return res.status(500).json({ error: "Failed to remove trip participant" });
+    }
+  }
+);
+
 router.get("/:tripId/summary", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -1461,6 +1508,48 @@ router.post(
   }
 );
 
+router.delete(
+  "/:tripId/expenses/:expenseId",
+  async (
+    req: Request<{ tripId: string; expenseId: string }>,
+    res: Response
+  ) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.tripId);
+    const expenseId = Number(req.params.expenseId);
+
+    if (!Number.isInteger(tripId) || !Number.isInteger(expenseId)) {
+      return res.status(400).json({ error: "Invalid trip or expense id" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      const result = await pool.query(
+        `DELETE FROM expenses
+         WHERE id = $1 AND trip_id = $2
+         RETURNING id`,
+        [expenseId, tripId]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Expense not found" });
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to delete expense:", error);
+      return res.status(500).json({ error: "Failed to delete expense" });
+    }
+  }
+);
+
 router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -1569,6 +1658,48 @@ router.post(
 
       console.error("[TRIPS] Failed to create itinerary item:", error);
       return res.status(500).json({ error: "Failed to create itinerary item" });
+    }
+  }
+);
+
+router.delete(
+  "/:tripId/itinerary/:itemId",
+  async (
+    req: Request<{ tripId: string; itemId: string }>,
+    res: Response
+  ) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.tripId);
+    const itemId = Number(req.params.itemId);
+
+    if (!Number.isInteger(tripId) || !Number.isInteger(itemId)) {
+      return res.status(400).json({ error: "Invalid trip or itinerary item id" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      const result = await pool.query(
+        `DELETE FROM itinerary_items
+         WHERE id = $1 AND trip_id = $2
+         RETURNING id`,
+        [itemId, tripId]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Itinerary item not found" });
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to delete itinerary item:", error);
+      return res.status(500).json({ error: "Failed to delete itinerary item" });
     }
   }
 );

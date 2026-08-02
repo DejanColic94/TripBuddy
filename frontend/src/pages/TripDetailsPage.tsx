@@ -153,14 +153,17 @@ function TripDetailsPage({
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
+  const [deletingParticipantUserId, setDeletingParticipantUserId] = useState<number | null>(null);
   const [isTripSaving, setIsTripSaving] = useState(false);
   const [isTripDeleting, setIsTripDeleting] = useState(false);
   const [isInvitesLoading, setIsInvitesLoading] = useState(true);
   const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingItineraryItemId, setDeletingItineraryItemId] = useState<number | null>(null);
   const [isExpensesLoading, setIsExpensesLoading] = useState(true);
   const [isExpenseSubmitting, setIsExpenseSubmitting] = useState(false);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [participantError, setParticipantError] = useState("");
   const [tripManagementError, setTripManagementError] = useState("");
@@ -706,6 +709,132 @@ function TripDetailsPage({
     }
   };
 
+  const deleteTripResource = async (
+    resourcePath: string,
+    fallbackError: string,
+    setResourceError: (message: string) => void
+  ) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}/${resourcePath}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return false;
+      }
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        setResourceError(data?.error || fallbackError);
+        return false;
+      }
+
+      return true;
+    } catch {
+      setResourceError(fallbackError);
+      return false;
+    }
+  };
+
+  const handleParticipantDelete = async (participant: TripParticipant) => {
+    const participantName = participant.name || `User #${participant.userId}`;
+    if (!window.confirm(`Remove ${participantName} from this trip?`)) {
+      return;
+    }
+
+    setParticipantError("");
+    setParticipantSuccessMessage("");
+    setDeletingParticipantUserId(participant.userId);
+
+    const deleted = await deleteTripResource(
+      `participants/${participant.userId}`,
+      "Failed to remove participant",
+      setParticipantError
+    );
+
+    if (deleted) {
+      const updatedParticipants = participants.filter(
+        (currentParticipant) => currentParticipant.userId !== participant.userId
+      );
+      const updatedTrip = { ...currentTrip, participants: updatedParticipants };
+      setParticipants(updatedParticipants);
+      setCurrentTrip(updatedTrip);
+      onTripUpdated(updatedTrip);
+      setParticipantSuccessMessage("Participant removed");
+    }
+
+    setDeletingParticipantUserId(null);
+  };
+
+  const handleItineraryDelete = async (item: ItineraryItem) => {
+    if (!window.confirm(`Delete itinerary item “${item.title}”?`)) {
+      return;
+    }
+
+    setError("");
+    setSuccessMessage("");
+    setDeletingItineraryItemId(item.id);
+
+    const deleted = await deleteTripResource(
+      `itinerary/${item.id}`,
+      "Failed to delete itinerary item",
+      setError
+    );
+
+    if (deleted) {
+      setItineraryItems((currentItems) =>
+        currentItems.filter((currentItem) => currentItem.id !== item.id)
+      );
+      setSummary((currentSummary) =>
+        currentSummary
+          ? {
+              ...currentSummary,
+              itineraryCount: Math.max(0, currentSummary.itineraryCount - 1),
+            }
+          : currentSummary
+      );
+      setSuccessMessage("Itinerary item deleted");
+    }
+
+    setDeletingItineraryItemId(null);
+  };
+
+  const handleExpenseDelete = async (expense: Expense) => {
+    if (!window.confirm(`Delete expense “${expense.title}”?`)) {
+      return;
+    }
+
+    setExpenseError("");
+    setExpenseSuccessMessage("");
+    setDeletingExpenseId(expense.id);
+
+    const deleted = await deleteTripResource(
+      `expenses/${expense.id}`,
+      "Failed to delete expense",
+      setExpenseError
+    );
+
+    if (deleted) {
+      setExpenses((currentExpenses) =>
+        currentExpenses.filter((currentExpense) => currentExpense.id !== expense.id)
+      );
+      setSummary((currentSummary) =>
+        currentSummary
+          ? {
+              ...currentSummary,
+              expenseCount: Math.max(0, currentSummary.expenseCount - 1),
+              totalExpenses: Math.max(0, currentSummary.totalExpenses - expense.amount),
+            }
+          : currentSummary
+      );
+      setExpenseSuccessMessage("Expense deleted");
+    }
+
+    setDeletingExpenseId(null);
+  };
+
   return (
     <section className="page trip-details-page">
       <div className="details-hero">
@@ -944,7 +1073,19 @@ function TripDetailsPage({
                     <strong>{participant.name || `User #${participant.userId}`}</strong>
                     <p>Trip participant</p>
                   </div>
-                  <span>{participant.role}</span>
+                  <div className="item-card-actions">
+                    <span>{participant.role}</span>
+                    {canManage && participant.userId !== currentTrip.createdBy ? (
+                      <button
+                        className="compact-danger-button"
+                        type="button"
+                        onClick={() => void handleParticipantDelete(participant)}
+                        disabled={deletingParticipantUserId === participant.userId}
+                      >
+                        {deletingParticipantUserId === participant.userId ? "Removing..." : "Remove"}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1093,7 +1234,19 @@ function TripDetailsPage({
                     {formatTripDate(item.scheduledDate)}
                   </div>
                   <div className="itinerary-card">
-                    <strong>{item.title}</strong>
+                    <div className="itinerary-card-header">
+                      <strong>{item.title}</strong>
+                      {canManage ? (
+                        <button
+                          className="compact-danger-button"
+                          type="button"
+                          onClick={() => void handleItineraryDelete(item)}
+                          disabled={deletingItineraryItemId === item.id}
+                        >
+                          {deletingItineraryItemId === item.id ? "Deleting..." : "Delete"}
+                        </button>
+                      ) : null}
+                    </div>
                     <p>{item.description || "No description"}</p>
                   </div>
                 </li>
@@ -1237,7 +1390,19 @@ function TripDetailsPage({
                     <strong>{expense.title}</strong>
                     <p>{expense.category || "Uncategorized"}</p>
                   </div>
-                  <span>{formatExpenseAmount(expense.amount, expense.currency)}</span>
+                  <div className="item-card-actions">
+                    <span>{formatExpenseAmount(expense.amount, expense.currency)}</span>
+                    {canManage ? (
+                      <button
+                        className="compact-danger-button"
+                        type="button"
+                        onClick={() => void handleExpenseDelete(expense)}
+                        disabled={deletingExpenseId === expense.id}
+                      >
+                        {deletingExpenseId === expense.id ? "Deleting..." : "Delete"}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

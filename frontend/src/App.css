@@ -186,6 +186,20 @@ button:disabled {
   background: rgba(180, 35, 24, 0.08);
 }
 
+.compact-danger-button {
+  border: 1px solid rgba(180, 35, 24, 0.22);
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: #ffffff;
+  box-shadow: none;
+  color: #b42318;
+  font-size: 0.78rem;
+}
+
+.compact-danger-button:hover:not(:disabled) {
+  background: rgba(180, 35, 24, 0.08);
+}
+
 .link-button {
   width: 100%;
 }
@@ -940,6 +954,22 @@ button:disabled {
   background: #ffffff;
   box-shadow: 0 14px 34px rgba(31, 41, 51, 0.065);
   padding: 20px;
+}
+
+.itinerary-card-header,
+.item-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.itinerary-card-header strong {
+  min-width: 0;
+}
+
+.item-card-actions {
+  flex-shrink: 0;
 }
 
 .itinerary-card strong {

@@ -601,7 +601,8 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${nonOwnerToken}`);
 
     expect(updateResponse.status).toBe(404);
-    expect(deleteResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(403);
+    expect(deleteResponse.body.error).toBe("Forbidden");
   });
 
   it("rejects an invalid trip update payload", async () => {
@@ -1181,7 +1182,8 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${participantToken}`);
 
     expect(updateResponse.status).toBe(404);
-    expect(deleteResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(403);
+    expect(deleteResponse.body.error).toBe("Forbidden");
   });
 
   it("allows a user participant to create expenses", async () => {
@@ -1304,6 +1306,75 @@ describe("trip-service endpoints", () => {
         tripDurationDays: 4,
       })
     );
+  });
+
+  it("prevents a user participant from removing another participant", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}/participants/${guestUserId}`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Forbidden");
+  });
+
+  it("does not allow an admin to remove the trip creator", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}/participants/${userId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Trip creator cannot be removed");
+  });
+
+  it("allows an admin to remove a participant", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}/participants/${guestUserId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const participantResult = await pool.query(
+      "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
+      [tripId, guestUserId]
+    );
+
+    expect(response.status).toBe(204);
+    expect(participantResult.rowCount).toBe(0);
+  });
+
+  it("allows an admin to delete an itinerary item", async () => {
+    const itemResult = await pool.query<{ id: number }>(
+      "SELECT id FROM itinerary_items WHERE trip_id = $1 AND title = $2",
+      [tripId, "Museum"]
+    );
+    const itemId = itemResult.rows[0].id;
+
+    const response = await request(app)
+      .delete(`/trips/${tripId}/itinerary/${itemId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const deletedResult = await pool.query(
+      "SELECT id FROM itinerary_items WHERE id = $1",
+      [itemId]
+    );
+
+    expect(response.status).toBe(204);
+    expect(deletedResult.rowCount).toBe(0);
+  });
+
+  it("allows an admin to delete an expense", async () => {
+    const expenseResult = await pool.query<{ id: number }>(
+      "SELECT id FROM expenses WHERE trip_id = $1 AND title = $2",
+      [tripId, "Hotel"]
+    );
+    const expenseId = expenseResult.rows[0].id;
+
+    const response = await request(app)
+      .delete(`/trips/${tripId}/expenses/${expenseId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const deletedResult = await pool.query(
+      "SELECT id FROM expenses WHERE id = $1",
+      [expenseId]
+    );
+
+    expect(response.status).toBe(204);
+    expect(deletedResult.rowCount).toBe(0);
   });
 
   it("allows the owner to update a trip", async () => {
