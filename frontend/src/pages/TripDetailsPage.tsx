@@ -956,6 +956,8 @@ function TripDetailsPage({
                 type="date"
                 value={scheduledDate}
                 onChange={(event) => setScheduledDate(event.target.value)}
+                min={currentTrip.startDate?.slice(0, 10)}
+                max={currentTrip.endDate?.slice(0, 10)}
               />
             </label>
 

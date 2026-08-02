@@ -93,6 +93,8 @@ type CreateItineraryItemBody = {
   scheduledDate?: string;
 };
 
+type TripDateRangeRow = Pick<TripRow, "start_date" | "end_date">;
+
 type ExpenseRow = {
   id: number;
   trip_id: number;
@@ -131,6 +133,15 @@ async function rollbackTransaction(client: PoolClient) {
   } catch (rollbackError) {
     console.error("[TRIPS] Failed to rollback transaction:", rollbackError);
   }
+}
+
+function isValidDateOnly(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
@@ -1329,9 +1340,32 @@ router.post(
       return res.status(400).json({ error: "scheduledDate must be a string" });
     }
 
+    if (scheduledDate !== undefined && !isValidDateOnly(scheduledDate)) {
+      return res.status(400).json({ error: "scheduledDate must be a valid date" });
+    }
+
     try {
       if (!(await userOwnsTrip(tripId, req.user.id))) {
         return res.status(404).json({ error: "Trip not found" });
+      }
+
+      if (scheduledDate !== undefined) {
+        const tripResult = await pool.query<TripDateRangeRow>(
+          "SELECT start_date, end_date FROM trips WHERE id = $1",
+          [tripId]
+        );
+        const tripDates = tripResult.rows[0];
+
+        if (
+          !tripDates?.start_date ||
+          !tripDates.end_date ||
+          scheduledDate < tripDates.start_date ||
+          scheduledDate > tripDates.end_date
+        ) {
+          return res.status(400).json({
+            error: "scheduledDate must be within the trip date range",
+          });
+        }
       }
 
       const result = await pool.query<ItineraryItemRow>(
