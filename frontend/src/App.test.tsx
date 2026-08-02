@@ -738,9 +738,10 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /my profile/i }));
 
     expect(screen.getByRole("heading", { name: /my profile/i })).toBeInTheDocument();
+    expect(screen.getByText("Edit the name other travelers see.")).toBeInTheDocument();
     expect(screen.getByLabelText(/name/i)).toHaveValue("Ana Traveler");
     expect(screen.getByLabelText(/new email/i)).toHaveValue("test@example.com");
-    expect(screen.getByLabelText(/role/i)).toHaveValue("user");
+    expect(screen.queryByLabelText(/role/i)).not.toBeInTheDocument();
   });
 
   it("updates the profile name and stored user", async () => {
@@ -1063,9 +1064,21 @@ describe("TripBuddy frontend", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /paris/i }));
 
+    const metadataHeading = await screen.findByRole("heading", { name: "Trip metadata" });
+    const metadataSection = metadataHeading.closest("section") as HTMLElement;
     const participantsHeading = await screen.findByRole("heading", { name: "Participants" });
     const participantsSection = participantsHeading.closest("section") as HTMLElement;
+    const scheduledDateInput = screen.getByLabelText("Scheduled date");
+    const currencySelect = screen.getByLabelText("Currency");
 
+    expect(within(metadataSection).getByText("Ana Traveler")).toBeInTheDocument();
+    expect(within(metadataSection).queryByText("User #7")).not.toBeInTheDocument();
+    expect(scheduledDateInput).toHaveAttribute("min", "2026-06-01");
+    expect(scheduledDateInput).toHaveAttribute("max", "2026-06-05");
+    expect(currencySelect).toHaveValue("EUR");
+    expect(
+      within(currencySelect).getByRole("option", { name: "Serbian dinar (RSD)" })
+    ).toBeInTheDocument();
     expect(participantsHeading).toBeInTheDocument();
     expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();

@@ -229,6 +229,9 @@ function ProfilePage({
       </div>
 
       <section className="panel profile-card">
+        <h2>Profile details</h2>
+        <p className="page-subtitle">Edit the name other travelers see.</p>
+
         <form className="form-stack" onSubmit={handleSubmit}>
           <label>
             Name
@@ -238,11 +241,6 @@ function ProfilePage({
               onChange={(event) => setName(event.target.value)}
               required
             />
-          </label>
-
-          <label>
-            Role
-            <input value={currentUser.role} readOnly />
           </label>
 
           {error ? <p className="error">{error}</p> : null}

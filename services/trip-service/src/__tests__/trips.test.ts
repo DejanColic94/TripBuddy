@@ -957,6 +957,29 @@ describe("trip-service endpoints", () => {
     expect(response.body.title).toBe("Museum");
   });
 
+  it.each(["2026-05-31", "2026-06-06"])(
+    "rejects an itinerary date outside the trip range: %s",
+    async (scheduledDate) => {
+      const response = await request(app)
+        .post(`/trips/${tripId}/itinerary`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Out-of-range plan", scheduledDate });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("scheduledDate must be within the trip date range");
+    }
+  );
+
+  it("rejects an invalid itinerary date", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/itinerary`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Impossible date", scheduledDate: "2026-02-30" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("scheduledDate must be a valid date");
+  });
+
   it("gets itinerary items", async () => {
     const response = await request(app)
       .get(`/trips/${tripId}/itinerary`)
@@ -1013,13 +1036,24 @@ describe("trip-service endpoints", () => {
       .send({
         title: "Hotel",
         amount: 250,
-        currency: "EUR",
+        currency: " eur ",
         category: "Accommodation",
       });
 
     expect(response.status).toBe(201);
     expect(response.body.title).toBe("Hotel");
     expect(response.body.amount).toBe(250);
+    expect(response.body.currency).toBe("EUR");
+  });
+
+  it("rejects an unsupported expense currency", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/expenses`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Invalid currency", amount: 10, currency: "BLABLA" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("currency must be one of:");
   });
 
   it("gets expenses", async () => {

@@ -72,6 +72,17 @@ const formatExpenseAmount = (amount: number, currency: string) => {
   }
 };
 
+const supportedCurrencies = [
+  { code: "EUR", name: "Euro" },
+  { code: "USD", name: "US dollar" },
+  { code: "GBP", name: "British pound" },
+  { code: "CHF", name: "Swiss franc" },
+  { code: "RSD", name: "Serbian dinar" },
+  { code: "CAD", name: "Canadian dollar" },
+  { code: "AUD", name: "Australian dollar" },
+  { code: "JPY", name: "Japanese yen" },
+] as const;
+
 function TripDetailsPage({
   token,
   trip,
@@ -126,6 +137,9 @@ function TripDetailsPage({
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSuccessMessage, setExpenseSuccessMessage] = useState("");
+  const creatorName =
+    participants.find((participant) => participant.userId === currentTrip.createdBy)?.name?.trim() ||
+    "Trip owner";
 
   const {
     convertedTotal: convertedExpenseTotal,
@@ -747,7 +761,7 @@ function TripDetailsPage({
             </div>
             <div>
               <dt>Created by</dt>
-              <dd>User #{currentTrip.createdBy}</dd>
+              <dd>{creatorName}</dd>
             </div>
           </dl>
         </section>
@@ -953,6 +967,8 @@ function TripDetailsPage({
                 type="date"
                 value={scheduledDate}
                 onChange={(event) => setScheduledDate(event.target.value)}
+                min={currentTrip.startDate?.slice(0, 10)}
+                max={currentTrip.endDate?.slice(0, 10)}
               />
             </label>
 
@@ -1027,12 +1043,16 @@ function TripDetailsPage({
 
               <label>
                 Currency
-                <input
+                <select
                   value={expenseCurrency}
-                  onChange={(event) => setExpenseCurrency(event.target.value.toUpperCase())}
-                  maxLength={10}
-                  required
-                />
+                  onChange={(event) => setExpenseCurrency(event.target.value)}
+                >
+                  {supportedCurrencies.map(({ code, name }) => (
+                    <option key={code} value={code}>
+                      {name} ({code})
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 
@@ -1075,13 +1095,11 @@ function TripDetailsPage({
                   value={conversionCurrency}
                   onChange={(event) => setConversionCurrency(event.target.value)}
                 >
-                  {["EUR", "USD", "GBP", "CHF", "RSD", "CAD", "AUD", "JPY"].map(
-                    (currency) => (
-                      <option key={currency} value={currency}>
-                        {currency}
-                      </option>
-                    )
-                  )}
+                  {supportedCurrencies.map(({ code, name }) => (
+                    <option key={code} value={code}>
+                      {name} ({code})
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
