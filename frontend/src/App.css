@@ -719,6 +719,10 @@ button:disabled {
   background: linear-gradient(155deg, #f7f5fb 0%, #ded8eb 100%);
 }
 
+.weather-card--climate {
+  border-style: dashed;
+}
+
 .weather-card p {
   margin: 0.35rem 0 0;
 }
@@ -728,6 +732,30 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.weather-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.weather-source {
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.weather-source--forecast {
+  background: #e3f2ed;
+  color: #195847;
+}
+
+.weather-source--climate {
+  background: #f8ead5;
+  color: #83521d;
 }
 
 .weather-today {
@@ -773,6 +801,13 @@ button:disabled {
   gap: 0.35rem;
   color: #376f8d;
   font-size: 0.9rem;
+}
+
+.weather-method-note {
+  max-width: 780px;
+  margin: 0.45rem 0 0;
+  color: #5f746e;
+  font-size: 0.92rem;
 }
 
 .weather-attribution {

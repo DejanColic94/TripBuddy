@@ -12,11 +12,14 @@ type WeatherResponse =
       location: { name: string; country?: string; timezone: string };
       days: Array<{
         date: string;
+        source: "forecast" | "climate";
         weatherCode: number;
         temperatureMaxC: number;
         temperatureMinC: number;
         precipitationProbability: number;
+        sampleSize?: number;
       }>;
+      climatePeriod: { startYear: number; endYear: number } | null;
       attribution: string;
     };
 
@@ -108,13 +111,20 @@ function WeatherForecast({
 
   if (!destination || !startDate || !endDate) return null;
 
+  const hasForecast = forecast?.available
+    ? forecast.days.some((day) => day.source === "forecast")
+    : false;
+  const hasClimate = forecast?.available
+    ? forecast.days.some((day) => day.source === "climate")
+    : false;
+
   return (
     <section className="panel weather-panel">
       <div className="section-heading">
-        <h2>Weather forecast</h2>
+        <h2>Weather outlook</h2>
         <span>Open-Meteo</span>
       </div>
-      {loading ? <p className="loading-state">Checking the forecast...</p> : null}
+      {loading ? <p className="loading-state">Checking the weather...</p> : null}
       {error ? <p className="error">{error}</p> : null}
       {forecast && !forecast.available ? (
         <p className="empty-state">{forecast.reason}</p>
@@ -125,6 +135,14 @@ function WeatherForecast({
             {forecast.location.name}
             {forecast.location.country ? `, ${forecast.location.country}` : ""}
           </p>
+          {hasClimate && forecast.climatePeriod ? (
+            <p className="weather-method-note">
+              {hasForecast
+                ? "Forecast data is shown where available. Later dates use typical daily conditions"
+                : "These are typical historical conditions, not a forecast"}{" "}
+              from {forecast.climatePeriod.startYear}–{forecast.climatePeriod.endYear}.
+            </p>
+          ) : null}
           <div className="weather-grid">
             {forecast.days.map((day, index) => {
               const visual = getWeatherVisual(day.weatherCode);
@@ -133,7 +151,9 @@ function WeatherForecast({
 
               return (
                 <article
-                  className={`weather-card weather-card--${visual.tone}${index === 0 ? " weather-card--first" : ""}`}
+                  className={`weather-card weather-card--${visual.tone}${
+                    day.source === "climate" ? " weather-card--climate" : ""
+                  }${index === 0 ? " weather-card--first" : ""}`}
                   key={day.date}
                 >
                   <div className="weather-card-heading">
@@ -144,7 +164,14 @@ function WeatherForecast({
                         day: "numeric",
                       })}
                     </strong>
-                    {isToday ? <span className="weather-today">Today</span> : null}
+                    <span className="weather-card-badges">
+                      {isToday ? <span className="weather-today">Today</span> : null}
+                      <span
+                        className={`weather-source weather-source--${day.source}`}
+                      >
+                        {day.source === "forecast" ? "Forecast" : "Typical"}
+                      </span>
+                    </span>
                   </div>
                   <span className="weather-icon" aria-hidden="true">
                     {visual.icon}
@@ -153,12 +180,20 @@ function WeatherForecast({
                     {weatherLabels[day.weatherCode] ?? "Variable conditions"}
                   </p>
                   <p className="weather-temperature">
-                    <strong>{Math.round(day.temperatureMaxC)}°</strong>
-                    <span>{Math.round(day.temperatureMinC)}°C</span>
+                    <strong>
+                      {day.source === "climate" ? "~" : ""}
+                      {Math.round(day.temperatureMaxC)}°
+                    </strong>
+                    <span>
+                      {day.source === "climate" ? "~" : ""}
+                      {Math.round(day.temperatureMinC)}°C
+                    </span>
                   </p>
                   <p className="weather-precipitation">
                     <span aria-hidden="true">💧</span>
-                    {day.precipitationProbability}% precipitation
+                    {day.source === "forecast"
+                      ? `${day.precipitationProbability}% precipitation`
+                      : `Rain on ${day.precipitationProbability}% of historical days`}
                   </p>
                 </article>
               );
