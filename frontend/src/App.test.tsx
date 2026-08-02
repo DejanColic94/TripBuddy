@@ -1069,11 +1069,16 @@ describe("TripBuddy frontend", () => {
     const participantsHeading = await screen.findByRole("heading", { name: "Participants" });
     const participantsSection = participantsHeading.closest("section") as HTMLElement;
     const scheduledDateInput = screen.getByLabelText("Scheduled date");
+    const currencySelect = screen.getByLabelText("Currency");
 
     expect(within(metadataSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(metadataSection).queryByText("User #7")).not.toBeInTheDocument();
     expect(scheduledDateInput).toHaveAttribute("min", "2026-06-01");
     expect(scheduledDateInput).toHaveAttribute("max", "2026-06-05");
+    expect(currencySelect).toHaveValue("EUR");
+    expect(
+      within(currencySelect).getByRole("option", { name: "Serbian dinar (RSD)" })
+    ).toBeInTheDocument();
     expect(participantsHeading).toBeInTheDocument();
     expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();

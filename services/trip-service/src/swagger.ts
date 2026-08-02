@@ -159,7 +159,11 @@ const swaggerSpec = swaggerJsdoc({
             tripId: { type: "number", example: 1 },
             title: { type: "string", example: "Hotel" },
             amount: { type: "number", example: 250 },
-            currency: { type: "string", example: "EUR" },
+            currency: {
+              type: "string",
+              enum: ["EUR", "USD", "GBP", "CHF", "RSD", "CAD", "AUD", "JPY"],
+              example: "EUR",
+            },
             category: { type: "string", nullable: true, example: "Accommodation" },
             createdAt: { type: "string", example: "2026-05-31T10:00:00.000Z" },
           },
@@ -170,7 +174,11 @@ const swaggerSpec = swaggerJsdoc({
           properties: {
             title: { type: "string", example: "Hotel" },
             amount: { type: "number", example: 250 },
-            currency: { type: "string", example: "EUR" },
+            currency: {
+              type: "string",
+              enum: ["EUR", "USD", "GBP", "CHF", "RSD", "CAD", "AUD", "JPY"],
+              example: "EUR",
+            },
             category: { type: "string", example: "Accommodation" },
           },
         },

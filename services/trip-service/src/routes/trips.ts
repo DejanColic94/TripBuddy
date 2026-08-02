@@ -120,6 +120,16 @@ type TripSummaryRow = {
 };
 
 const router = Router();
+const supportedCurrencies = new Set([
+  "EUR",
+  "USD",
+  "GBP",
+  "CHF",
+  "RSD",
+  "CAD",
+  "AUD",
+  "JPY",
+]);
 
 class InviteEmailDeliveryError extends Error {
   constructor(public readonly originalError: unknown) {
@@ -1249,6 +1259,13 @@ router.post(
       return res.status(400).json({ error: "currency must be a string" });
     }
 
+    const normalizedCurrency = currency?.trim().toUpperCase() || "EUR";
+    if (!supportedCurrencies.has(normalizedCurrency)) {
+      return res.status(400).json({
+        error: `currency must be one of: ${Array.from(supportedCurrencies).join(", ")}`,
+      });
+    }
+
     if (category !== undefined && typeof category !== "string") {
       return res.status(400).json({ error: "category must be a string" });
     }
@@ -1268,7 +1285,7 @@ router.post(
           tripId,
           title.trim(),
           amount,
-          currency?.trim() || "EUR",
+          normalizedCurrency,
           category?.trim() || null,
         ]
       );

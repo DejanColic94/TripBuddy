@@ -1036,13 +1036,24 @@ describe("trip-service endpoints", () => {
       .send({
         title: "Hotel",
         amount: 250,
-        currency: "EUR",
+        currency: " eur ",
         category: "Accommodation",
       });
 
     expect(response.status).toBe(201);
     expect(response.body.title).toBe("Hotel");
     expect(response.body.amount).toBe(250);
+    expect(response.body.currency).toBe("EUR");
+  });
+
+  it("rejects an unsupported expense currency", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/expenses`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Invalid currency", amount: 10, currency: "BLABLA" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("currency must be one of:");
   });
 
   it("gets expenses", async () => {
