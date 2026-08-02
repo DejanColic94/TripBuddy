@@ -52,6 +52,11 @@ const trip = {
   name: "Paris",
   description: "Museum weekend",
   destination: "Paris, France",
+  destinationId: 2988507,
+  destinationLatitude: 48.85341,
+  destinationLongitude: 2.3488,
+  destinationTimezone: "Europe/Paris",
+  destinationCountryCode: "FR",
   startDate: "2026-06-01",
   endDate: "2026-06-05",
   createdBy: 7,
@@ -63,6 +68,11 @@ const sharedTrip = {
   name: "Lisbon",
   description: "Shared coast plan",
   destination: "Lisbon, Portugal",
+  destinationId: 2267057,
+  destinationLatitude: 38.71667,
+  destinationLongitude: -9.13333,
+  destinationTimezone: "Europe/Lisbon",
+  destinationCountryCode: "PT",
   startDate: "2026-07-10",
   endDate: "2026-07-14",
   createdBy: 11,
@@ -550,8 +560,30 @@ describe("TripBuddy frontend", () => {
           name: "Rome Adventure",
           description: "Updated plan",
           destination: "Rome, Italy",
+          destinationId: 3169070,
+          destinationLatitude: 41.89193,
+          destinationLongitude: 12.51133,
+          destinationTimezone: "Europe/Rome",
+          destinationCountryCode: "IT",
         };
         return mockResponse(activeTrip);
+      }
+
+      if (url.includes("/integrations/locations?")) {
+        return mockResponse({
+          locations: [
+            {
+              id: 3169070,
+              name: "Rome",
+              displayName: "Rome, Italy",
+              latitude: 41.89193,
+              longitude: 12.51133,
+              timezone: "Europe/Rome",
+              country: "Italy",
+              countryCode: "IT",
+            },
+          ],
+        });
       }
 
       if (url.endsWith("/trips") && !init?.method) {
@@ -572,6 +604,9 @@ describe("TripBuddy frontend", () => {
     await user.type(within(editPanel).getByLabelText(/^description$/i), "Updated plan");
     await user.clear(within(editPanel).getByLabelText(/^destination$/i));
     await user.type(within(editPanel).getByLabelText(/^destination$/i), "Rome, Italy");
+    await user.click(
+      await within(editPanel).findByRole("option", { name: /Rome.*Rome, Italy/i })
+    );
     await user.click(within(editPanel).getByRole("button", { name: /save changes/i }));
 
     await waitFor(() =>
@@ -690,6 +725,23 @@ describe("TripBuddy frontend", () => {
         return mockResponse(trip, 201);
       }
 
+      if (url.includes("/integrations/locations?")) {
+        return mockResponse({
+          locations: [
+            {
+              id: 2988507,
+              name: "Paris",
+              displayName: "Paris, France",
+              latitude: 48.85341,
+              longitude: 2.3488,
+              timezone: "Europe/Paris",
+              country: "France",
+              countryCode: "FR",
+            },
+          ],
+        });
+      }
+
       if (url.endsWith("/trips")) {
         return mockResponse([]);
       }
@@ -700,6 +752,10 @@ describe("TripBuddy frontend", () => {
     render(<App />);
     await screen.findByRole("heading", { name: /your trips/i });
     await user.type(screen.getByLabelText(/^name$/i), "Paris");
+    await user.type(screen.getByLabelText(/^destination$/i), "Paris");
+    await user.click(await screen.findByRole("option", { name: /Paris.*Paris, France/i }));
+    await user.type(screen.getByLabelText(/start date/i), "2026-06-01");
+    await user.type(screen.getByLabelText(/end date/i), "2026-06-05");
     await user.click(screen.getByRole("button", { name: /create trip/i }));
 
     expect(await screen.findByText("Paris")).toBeInTheDocument();

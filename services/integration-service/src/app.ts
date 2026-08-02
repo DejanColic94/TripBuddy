@@ -6,6 +6,7 @@ import {
   ExchangeRateProviderError,
   convertCurrency,
 } from "./exchangeRateService";
+import { LocationProviderError, searchLocations } from "./locationService";
 import { WeatherProviderError, getWeatherForecast } from "./weatherService";
 
 const app = express();
@@ -20,6 +21,30 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => {
   res.json({ service: "integration-service", status: "ok" });
+});
+
+app.get("/locations", async (req, res) => {
+  const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
+
+  if (query.length < 2) {
+    return res.status(400).json({ error: "query must be at least 2 characters" });
+  }
+  if (query.length > 100) {
+    return res.status(400).json({ error: "query must be 100 characters or fewer" });
+  }
+
+  try {
+    return res.status(200).json({
+      locations: await searchLocations(query),
+      attribution: "Location data by GeoNames via Open-Meteo.com",
+    });
+  } catch (error) {
+    if (error instanceof LocationProviderError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("[INTEGRATION] Location search failed:", error);
+    return res.status(500).json({ error: "Failed to search locations" });
+  }
 });
 
 app.get("/weather", async (req, res) => {

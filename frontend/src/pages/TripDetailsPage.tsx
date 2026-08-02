@@ -4,9 +4,11 @@ import {
   fetchTripInvites,
   type TripInvite,
 } from "../api/invites";
+import LocationAutocomplete from "../components/LocationAutocomplete";
 import { API_BASE_URL } from "../config/api";
 import WeatherForecast from "../components/WeatherForecast";
 import { useExpenseConversion } from "../hooks/useExpenseConversion";
+import type { LocationSearchResult } from "../types/location";
 import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
 
 type TripDetailsPageProps = {
@@ -83,6 +85,29 @@ const supportedCurrencies = [
   { code: "JPY", name: "Japanese yen" },
 ] as const;
 
+function locationFromTrip(trip: Trip): LocationSearchResult | null {
+  if (
+    !trip.destination ||
+    typeof trip.destinationId !== "number" ||
+    typeof trip.destinationLatitude !== "number" ||
+    typeof trip.destinationLongitude !== "number" ||
+    !trip.destinationTimezone ||
+    !trip.destinationCountryCode
+  ) {
+    return null;
+  }
+
+  return {
+    id: trip.destinationId,
+    name: trip.destination.split(",")[0].trim(),
+    displayName: trip.destination,
+    latitude: trip.destinationLatitude,
+    longitude: trip.destinationLongitude,
+    timezone: trip.destinationTimezone,
+    countryCode: trip.destinationCountryCode,
+  };
+}
+
 function TripDetailsPage({
   token,
   trip,
@@ -103,6 +128,8 @@ function TripDetailsPage({
   const [editName, setEditName] = useState(trip.name);
   const [editDescription, setEditDescription] = useState(trip.description ?? "");
   const [editDestination, setEditDestination] = useState(trip.destination ?? "");
+  const [selectedEditDestination, setSelectedEditDestination] =
+    useState<LocationSearchResult | null>(() => locationFromTrip(trip));
   const [editStartDate, setEditStartDate] = useState(trip.startDate?.slice(0, 10) ?? "");
   const [editEndDate, setEditEndDate] = useState(trip.endDate?.slice(0, 10) ?? "");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -349,6 +376,7 @@ function TripDetailsPage({
     setEditName(trip.name);
     setEditDescription(trip.description ?? "");
     setEditDestination(trip.destination ?? "");
+    setSelectedEditDestination(locationFromTrip(trip));
     setEditStartDate(trip.startDate?.slice(0, 10) ?? "");
     setEditEndDate(trip.endDate?.slice(0, 10) ?? "");
     setParticipants(trip.participants ?? []);
@@ -371,6 +399,20 @@ function TripDetailsPage({
   const handleTripUpdate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTripManagementError("");
+
+    if (!selectedEditDestination) {
+      setTripManagementError("Choose a destination from the search results");
+      return;
+    }
+    if (!editStartDate || !editEndDate) {
+      setTripManagementError("Start date and end date are required");
+      return;
+    }
+    if (editStartDate > editEndDate) {
+      setTripManagementError("Start date must not be after end date");
+      return;
+    }
+
     setIsTripSaving(true);
 
     try {
@@ -383,9 +425,14 @@ function TripDetailsPage({
         body: JSON.stringify({
           name: editName,
           description: editDescription || undefined,
-          destination: editDestination || undefined,
-          startDate: editStartDate || undefined,
-          endDate: editEndDate || undefined,
+          destination: selectedEditDestination.displayName,
+          destinationId: selectedEditDestination.id,
+          destinationLatitude: selectedEditDestination.latitude,
+          destinationLongitude: selectedEditDestination.longitude,
+          destinationTimezone: selectedEditDestination.timezone,
+          destinationCountryCode: selectedEditDestination.countryCode,
+          startDate: editStartDate,
+          endDate: editEndDate,
         }),
       });
 
@@ -406,6 +453,8 @@ function TripDetailsPage({
         participants: currentTrip.participants,
       };
       setCurrentTrip(updatedTrip);
+      setEditDestination(data.destination ?? "");
+      setSelectedEditDestination(locationFromTrip(data));
       onTripUpdated(updatedTrip);
       setIsEditingTrip(false);
     } catch {
@@ -695,7 +744,12 @@ function TripDetailsPage({
           <form className="form-stack" onSubmit={handleTripUpdate}>
             <label>
               Trip name
-              <input value={editName} onChange={(event) => setEditName(event.target.value)} required />
+              <input
+                value={editName}
+                maxLength={255}
+                onChange={(event) => setEditName(event.target.value)}
+                required
+              />
             </label>
             <label>
               Description
@@ -705,20 +759,22 @@ function TripDetailsPage({
                 rows={3}
               />
             </label>
-            <label>
-              Destination
-              <input
-                value={editDestination}
-                onChange={(event) => setEditDestination(event.target.value)}
-              />
-            </label>
+            <LocationAutocomplete
+              query={editDestination}
+              selectedLocation={selectedEditDestination}
+              onQueryChange={setEditDestination}
+              onSelectionChange={setSelectedEditDestination}
+              required
+            />
             <div className="date-inputs">
               <label>
                 Start date
                 <input
                   type="date"
                   value={editStartDate}
+                  max={editEndDate || undefined}
                   onChange={(event) => setEditStartDate(event.target.value)}
+                  required
                 />
               </label>
               <label>
@@ -726,7 +782,9 @@ function TripDetailsPage({
                 <input
                   type="date"
                   value={editEndDate}
+                  min={editStartDate || undefined}
                   onChange={(event) => setEditEndDate(event.target.value)}
+                  required
                 />
               </label>
             </div>

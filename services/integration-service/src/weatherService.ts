@@ -1,7 +1,7 @@
 import axios from "axios";
+import { searchLocations } from "./locationService";
 
 const requestTimeoutMs = 5000;
-const geocodingUrl = "https://geocoding-api.open-meteo.com/v1/search";
 const forecastUrl = "https://api.open-meteo.com/v1/forecast";
 
 export class WeatherProviderError extends Error {
@@ -33,11 +33,7 @@ export async function getWeatherForecast(
   }
 
   try {
-    const geocoding = await axios.get(geocodingUrl, {
-      timeout: requestTimeoutMs,
-      params: { name: destination, count: 1, language: "en", format: "json" },
-    });
-    const location = geocoding.data?.results?.[0];
+    const [location] = await searchLocations(destination, 1);
     if (!location) throw new WeatherProviderError("Destination not found", 404);
 
     const effectiveStart = parseUtcDate(startDate) < today

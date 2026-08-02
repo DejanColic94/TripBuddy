@@ -9,6 +9,11 @@ export type Trip = {
   name: string;
   description: string | null;
   destination: string | null;
+  destinationId?: number | null;
+  destinationLatitude?: number | null;
+  destinationLongitude?: number | null;
+  destinationTimezone?: string | null;
+  destinationCountryCode?: string | null;
   startDate: string | null;
   endDate: string | null;
   createdBy: number;

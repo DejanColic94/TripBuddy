@@ -20,7 +20,17 @@ it("returns a normalized destination forecast", async () => {
   mockedAxios.get
     .mockResolvedValueOnce({
       data: {
-        results: [{ name: "Lisbon", country: "Portugal", latitude: 38.72, longitude: -9.14 }],
+        results: [
+          {
+            id: 2267057,
+            name: "Lisbon",
+            country: "Portugal",
+            country_code: "PT",
+            latitude: 38.72,
+            longitude: -9.14,
+            timezone: "Europe/Lisbon",
+          },
+        ],
       },
     })
     .mockResolvedValueOnce({

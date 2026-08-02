@@ -226,6 +226,18 @@ describe("trip-service endpoints", () => {
   let tripId = 0;
   let inviteToken = "";
   let duplicateParticipantInviteToken = "";
+  const validTripPayload = {
+    name: "Test Trip",
+    description: "A test trip",
+    destination: "Paris, France",
+    destinationId: 2988507,
+    destinationLatitude: 48.85341,
+    destinationLongitude: 2.3488,
+    destinationTimezone: "Europe/Paris",
+    destinationCountryCode: "fr",
+    startDate: "2026-06-01",
+    endDate: "2026-06-05",
+  };
 
   it("rejects /trips without token", async () => {
     const response = await request(app).get("/trips");
@@ -233,22 +245,108 @@ describe("trip-service endpoints", () => {
     expect(response.status).toBe(401);
   });
 
-  it("creates a trip with a valid token", async () => {
+  it("rejects a destination that was not selected from location search", async () => {
     const response = await request(app)
       .post("/trips")
       .set("Authorization", `Bearer ${token}`)
       .send({
-        name: "Test Trip",
-        description: "A test trip",
-        destination: "Paris",
+        name: "Unstructured Trip",
+        destination: "Whatever I typed",
         startDate: "2026-06-01",
         endDate: "2026-06-05",
       });
 
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("destinationId must be a positive integer");
+  });
+
+  it("rejects a trip whose start date is after its end date", async () => {
+    const response = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Backwards Trip",
+        destination: "Paris, France",
+        destinationId: 2988507,
+        destinationLatitude: 48.85341,
+        destinationLongitude: 2.3488,
+        destinationTimezone: "Europe/Paris",
+        destinationCountryCode: "FR",
+        startDate: "2026-06-05",
+        endDate: "2026-06-01",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("startDate must not be after endDate");
+  });
+
+  it("creates a trip with a valid token", async () => {
+    const response = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send(validTripPayload);
+
     expect(response.status).toBe(201);
     expect(response.body.name).toBe("Test Trip");
-    expect(response.body.destination).toBe("Paris");
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        destination: "Paris, France",
+        destinationId: 2988507,
+        destinationLatitude: 48.85341,
+        destinationLongitude: 2.3488,
+        destinationTimezone: "Europe/Paris",
+        destinationCountryCode: "FR",
+      })
+    );
     tripId = response.body.id;
+  });
+
+  it("rejects duplicate trip names for the same owner regardless of case", async () => {
+    const response = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "  test trip  " });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("You already have a trip with this name");
+  });
+
+  it("allows different owners to use the same trip name", async () => {
+    const createResponse = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${nonOwnerToken}`)
+      .send({ ...validTripPayload, name: "TEST TRIP" });
+
+    expect(createResponse.status).toBe(201);
+
+    const deleteResponse = await request(app)
+      .delete(`/trips/${createResponse.body.id}`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(deleteResponse.status).toBe(204);
+  });
+
+  it("rejects renaming a trip to another trip name owned by the same user", async () => {
+    const secondTripResponse = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "Second Trip" });
+
+    expect(secondTripResponse.status).toBe(201);
+
+    const updateResponse = await request(app)
+      .put(`/trips/${secondTripResponse.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "test trip" });
+
+    expect(updateResponse.status).toBe(409);
+    expect(updateResponse.body.error).toBe("You already have a trip with this name");
+
+    const deleteResponse = await request(app)
+      .delete(`/trips/${secondTripResponse.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(deleteResponse.status).toBe(204);
   });
 
   it("adds the trip creator as owner participant", async () => {
@@ -1130,7 +1228,12 @@ describe("trip-service endpoints", () => {
       .send({
         name: "Updated Test Trip",
         description: "Updated description",
-        destination: "Rome",
+        destination: "Rome, Italy",
+        destinationId: 3169070,
+        destinationLatitude: 41.89193,
+        destinationLongitude: 12.51133,
+        destinationTimezone: "Europe/Rome",
+        destinationCountryCode: "IT",
         startDate: "2026-07-01",
         endDate: "2026-07-08",
       });
@@ -1141,7 +1244,9 @@ describe("trip-service endpoints", () => {
         id: tripId,
         name: "Updated Test Trip",
         description: "Updated description",
-        destination: "Rome",
+        destination: "Rome, Italy",
+        destinationId: 3169070,
+        destinationCountryCode: "IT",
       })
     );
   });
