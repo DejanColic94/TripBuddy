@@ -207,11 +207,6 @@ button:disabled {
   margin-bottom: 1.5rem;
 }
 
-.profile-card input[readonly] {
-  background: #f4f7f5;
-  color: #5d6963;
-}
-
 .trips-page {
   gap: 28px;
 }

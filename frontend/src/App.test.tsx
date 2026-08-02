@@ -738,9 +738,10 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /my profile/i }));
 
     expect(screen.getByRole("heading", { name: /my profile/i })).toBeInTheDocument();
+    expect(screen.getByText("Edit the name other travelers see.")).toBeInTheDocument();
     expect(screen.getByLabelText(/name/i)).toHaveValue("Ana Traveler");
     expect(screen.getByLabelText(/new email/i)).toHaveValue("test@example.com");
-    expect(screen.getByLabelText(/role/i)).toHaveValue("user");
+    expect(screen.queryByLabelText(/role/i)).not.toBeInTheDocument();
   });
 
   it("updates the profile name and stored user", async () => {
