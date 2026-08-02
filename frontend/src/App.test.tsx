@@ -1735,12 +1735,34 @@ describe("TripBuddy frontend", () => {
             name: "Lisbon Spring",
             description: "Shared plan",
             destination: "Lisbon",
-            startDate: null,
-            endDate: null,
+            startDate: "2026-05-01",
+            endDate: "2026-05-05",
           },
-          itinerary: [],
-          expenses: [],
+          itinerary: [
+            {
+              id: 1,
+              title: "Tram ride",
+              description: "Explore the old town",
+              scheduledDate: "2026-05-02",
+            },
+          ],
+          expenses: [
+            {
+              id: 1,
+              title: "Dinner",
+              amount: 42,
+              currency: "EUR",
+              category: "Food",
+            },
+          ],
           permissions: { readOnly: true },
+        });
+      }
+      if (url.includes("/integrations/weather?")) {
+        return mockResponse({
+          available: false,
+          reason: "Forecast is not available for these dates",
+          attribution: "Weather data by Open-Meteo.com",
         });
       }
       return mockResponse({});
@@ -1751,7 +1773,16 @@ describe("TripBuddy frontend", () => {
     await user.click(screen.getByRole("button", { name: /continue as guest/i }));
 
     expect(await screen.findByText("Read-only guest access")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Lisbon Spring" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Lisbon Spring" })).toBeInTheDocument();
+    expect(screen.getByText("Viewing as Guest Traveler")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Trip metadata" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Trip summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Itinerary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Expenses" })).toBeInTheDocument();
+    expect(screen.getByText("Tram ride")).toBeInTheDocument();
+    expect(screen.getByText("Dinner")).toBeInTheDocument();
+    expect(screen.getAllByText("€42.00").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /edit|delete|add|remove/i })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/guest/guest-access-token");
   });
 
