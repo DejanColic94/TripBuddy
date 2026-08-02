@@ -1,11 +1,12 @@
 import { API_BASE_URL } from "../config/api";
+import type { TripRole } from "../types/trip";
 
 export type TripInvite = {
   id: number;
   tripId: number;
   email: string;
   token: string;
-  role: string;
+  role: TripRole;
   acceptedAt: string | null;
   accepted_at?: string | null;
   createdAt: string;
@@ -32,7 +33,7 @@ export type AcceptTripInviteResponse = {
   tripId: number;
   email: string;
   token: string;
-  role: string;
+  role: TripRole;
   acceptedAt: string;
   createdAt: string;
   accountCreated: boolean;
@@ -42,7 +43,7 @@ export type TripInvitePreview = {
   tripId: number;
   tripName: string;
   email: string;
-  role: string;
+  role: TripRole;
   accountExists: boolean;
   expiresAt: string;
 };
@@ -99,7 +100,7 @@ export async function fetchTripInvites(tripId: number, token: string) {
 export async function createTripInvite(
   tripId: number,
   token: string,
-  invite: { email: string; role: string }
+  invite: { email: string; role: TripRole }
 ) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/invites`, {
     method: "POST",

@@ -19,16 +19,16 @@ const ownerParticipant = {
   tripId: 1,
   userId: 7,
   name: "Ana Traveler",
-  role: "owner",
+  role: "admin" as const,
   createdAt: "2026-06-18T10:00:00.000Z",
 };
 
-const viewerParticipant = {
+const userParticipant = {
   id: 2,
   tripId: 1,
   userId: 8,
   name: "Milan Traveler",
-  role: "viewer",
+  role: "user" as const,
   createdAt: "2026-06-18T10:05:00.000Z",
 };
 
@@ -37,7 +37,7 @@ const invite = {
   tripId: 1,
   email: "friend@example.com",
   token: "invite-token-123",
-  role: "viewer",
+  role: "user" as const,
   acceptedAt: null,
   createdAt: "2026-06-18T10:10:00.000Z",
 };
@@ -77,8 +77,20 @@ const sharedTrip = {
   endDate: "2026-07-14",
   createdBy: 11,
   participants: [
-    { userId: 11, name: "Trip Owner", role: "owner" },
-    { userId: 7, name: "Ana Traveler", role: "viewer" },
+    { userId: 11, name: "Trip Owner", role: "admin" as const },
+    { userId: 7, name: "Ana Traveler", role: "user" as const },
+  ],
+};
+
+const guestTrip = {
+  ...sharedTrip,
+  id: 3,
+  name: "Prague",
+  destination: "Prague, Czechia",
+  createdBy: 11,
+  participants: [
+    { userId: 11, name: "Trip Owner", role: "admin" as const },
+    { userId: 7, name: "Ana Traveler", role: "guest" as const },
   ],
 };
 
@@ -525,7 +537,7 @@ describe("TripBuddy frontend", () => {
     const tripCard = (await screen.findByText("Paris")).closest("li") as HTMLElement;
 
     expect(within(tripCard).getByText("Participants")).toBeInTheDocument();
-    expect(within(tripCard).getByText(/Ana Traveler.*owner/)).toBeInTheDocument();
+    expect(within(tripCard).getByText(/Ana Traveler.*admin/)).toBeInTheDocument();
   });
 
   it("renders shared trips in the dashboard", async () => {
@@ -543,7 +555,7 @@ describe("TripBuddy frontend", () => {
     const sharedTripCard = (await screen.findByText("Lisbon")).closest("li") as HTMLElement;
 
     expect(within(sharedTripCard).getByText("Shared coast plan")).toBeInTheDocument();
-    expect(within(sharedTripCard).getByText(/Ana Traveler.*viewer/)).toBeInTheDocument();
+    expect(within(sharedTripCard).getByText(/Ana Traveler.*user/)).toBeInTheDocument();
   });
 
   it("allows an owner to edit a trip and shows updated data", async () => {
@@ -649,7 +661,7 @@ describe("TripBuddy frontend", () => {
     await waitFor(() => expect(screen.queryByText("Paris")).not.toBeInTheDocument());
   });
 
-  it("does not show trip management controls to a participant", async () => {
+  it("gives a trip user contribution controls without admin controls", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();
     localStorage.setItem("user", JSON.stringify(authUser));
@@ -667,6 +679,38 @@ describe("TripBuddy frontend", () => {
 
     expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete trip/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /add participant/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /create invite/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /add itinerary item/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /add expense/i })).toBeInTheDocument();
+    expect(screen.getByText(/user access/i)).toBeInTheDocument();
+  });
+
+  it("shows a guest the full trip page without write controls", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    mockFetch((url, init) => {
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([guestTrip]);
+      }
+
+      return mockTripDetailsRead(url, guestTrip) ?? mockResponse({});
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /prague/i }));
+    await screen.findByText("Trip summary");
+
+    expect(screen.getByRole("heading", { name: "Itinerary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Expenses" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Participants" })).toBeInTheDocument();
+    expect(screen.getByText(/guest access/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete trip/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /add participant/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /create invite/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /add itinerary item/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /add expense/i })).not.toBeInTheDocument();
   });
 
   it("shows an error when an owner update fails", async () => {
@@ -1057,7 +1101,7 @@ describe("TripBuddy frontend", () => {
       }
 
       if (url.endsWith("/trips/1/participants")) {
-        return mockResponse([ownerParticipant, viewerParticipant]);
+        return mockResponse([ownerParticipant, userParticipant]);
       }
 
       if (url.endsWith("/trips/1/invites")) {
@@ -1089,7 +1133,7 @@ describe("TripBuddy frontend", () => {
       if (url.endsWith("/trips/1")) {
         return mockResponse({
           ...trip,
-          participants: [ownerParticipant, viewerParticipant],
+          participants: [ownerParticipant, userParticipant],
         });
       }
 
@@ -1103,7 +1147,7 @@ describe("TripBuddy frontend", () => {
       }
 
       if (url.endsWith("/trips/1/participants")) {
-        return mockResponse([ownerParticipant, viewerParticipant]);
+        return mockResponse([ownerParticipant, userParticipant]);
       }
 
       if (url.endsWith("/trips/1/invites")) {
@@ -1137,9 +1181,9 @@ describe("TripBuddy frontend", () => {
     ).toBeInTheDocument();
     expect(participantsHeading).toBeInTheDocument();
     expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
-    expect(within(participantsSection).getByText("owner")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("admin")).toBeInTheDocument();
     expect(within(participantsSection).getByText("Milan Traveler")).toBeInTheDocument();
-    expect(within(participantsSection).getByText("viewer")).toBeInTheDocument();
+    expect(within(participantsSection).getByText("user")).toBeInTheDocument();
   });
 
   it("converts mixed expense currencies into a selected total", async () => {
@@ -1297,7 +1341,7 @@ describe("TripBuddy frontend", () => {
     await screen.findByRole("heading", { name: "Invites" });
 
     await user.type(screen.getByLabelText(/invite email/i), "friend@example.com");
-    await user.selectOptions(screen.getByLabelText(/invite role/i), "viewer");
+    await user.selectOptions(screen.getByLabelText(/invite role/i), "user");
     await user.click(screen.getByRole("button", { name: /create invite/i }));
 
     await waitFor(() =>
@@ -1305,7 +1349,7 @@ describe("TripBuddy frontend", () => {
         expect.stringContaining("/trips/1/invites"),
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ email: "friend@example.com", role: "viewer" }),
+          body: JSON.stringify({ email: "friend@example.com", role: "user" }),
         })
       )
     );
@@ -1332,7 +1376,7 @@ describe("TripBuddy frontend", () => {
       }
 
       if (url.endsWith("/trips/1/participants") && init?.method === "POST") {
-        return mockResponse(viewerParticipant, 201);
+        return mockResponse(userParticipant, 201);
       }
 
       if (url.endsWith("/trips/1/participants")) {
@@ -1340,7 +1384,7 @@ describe("TripBuddy frontend", () => {
           calledUrl.toString().endsWith("/trips/1/participants")
         );
 
-        return mockResponse(participantCalls.length > 1 ? [ownerParticipant, viewerParticipant] : [ownerParticipant]);
+        return mockResponse(participantCalls.length > 1 ? [ownerParticipant, userParticipant] : [ownerParticipant]);
       }
 
       if (url.endsWith("/trips/1/invites")) {
@@ -1361,7 +1405,7 @@ describe("TripBuddy frontend", () => {
     await screen.findAllByText("Ana Traveler");
 
     await user.type(screen.getByLabelText(/participant user id/i), "8");
-    await user.selectOptions(screen.getByLabelText(/participant role/i), "viewer");
+    await user.selectOptions(screen.getByLabelText(/participant role/i), "user");
     await user.click(screen.getByRole("button", { name: /add participant/i }));
 
     await waitFor(() =>
@@ -1369,7 +1413,7 @@ describe("TripBuddy frontend", () => {
         expect.stringContaining("/trips/1/participants"),
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ userId: 8, role: "viewer" }),
+          body: JSON.stringify({ userId: 8, role: "user" }),
         })
       )
     );
@@ -1434,7 +1478,7 @@ describe("TripBuddy frontend", () => {
           tripId: 1,
           tripName: "Lisbon Spring",
           email: "friend@example.com",
-          role: "viewer",
+          role: "user",
           accountExists: true,
           expiresAt: "2030-01-01T00:00:00.000Z",
         });
@@ -1471,7 +1515,7 @@ describe("TripBuddy frontend", () => {
           tripId: 1,
           tripName: "Lisbon Spring",
           email: "friend@example.com",
-          role: "viewer",
+          role: "user",
           accountExists: false,
           expiresAt: "2030-01-01T00:00:00.000Z",
         });
@@ -1520,7 +1564,7 @@ describe("TripBuddy frontend", () => {
           tripId: 1,
           tripName: "Lisbon Spring",
           email: "guest@example.com",
-          role: "viewer",
+          role: "user",
           accountExists: false,
           expiresAt: "2030-01-01T00:00:00.000Z",
         });
@@ -1614,7 +1658,7 @@ describe("TripBuddy frontend", () => {
           tripId: 1,
           tripName: "Lisbon Spring",
           email: "test@example.com",
-          role: "viewer",
+          role: "user",
           accountExists: true,
           expiresAt: "2030-01-01T00:00:00.000Z",
         });
@@ -1654,7 +1698,7 @@ describe("TripBuddy frontend", () => {
           tripId: 1,
           tripName: "Lisbon Spring",
           email: "new@example.com",
-          role: "viewer",
+          role: "user",
           accountExists: false,
           expiresAt: "2030-01-01T00:00:00.000Z",
         });

@@ -9,12 +9,17 @@ import { API_BASE_URL } from "../config/api";
 import WeatherForecast from "../components/WeatherForecast";
 import { useExpenseConversion } from "../hooks/useExpenseConversion";
 import type { LocationSearchResult } from "../types/location";
-import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
+import {
+  formatTripDate,
+  type Trip,
+  type TripParticipantSummary,
+  type TripRole,
+} from "../types/trip";
 
 type TripDetailsPageProps = {
   token: string;
   trip: Trip;
-  canManage: boolean;
+  tripRole: TripRole;
   onBack: () => void;
   onTripUpdated: (trip: Trip) => void;
   onTripDeleted: () => void;
@@ -111,19 +116,21 @@ function locationFromTrip(trip: Trip): LocationSearchResult | null {
 function TripDetailsPage({
   token,
   trip,
-  canManage,
+  tripRole,
   onBack,
   onTripUpdated,
   onTripDeleted,
   onUnauthorized,
 }: TripDetailsPageProps) {
+  const canManage = tripRole === "admin";
+  const canContribute = canManage || tripRole === "user";
   const [summary, setSummary] = useState<TripSummary | null>(null);
   const [currentTrip, setCurrentTrip] = useState(trip);
   const [participants, setParticipants] = useState<TripParticipant[]>(trip.participants ?? []);
   const [invites, setInvites] = useState<TripInvite[]>([]);
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
   const [participantUserId, setParticipantUserId] = useState("");
-  const [participantRole, setParticipantRole] = useState("viewer");
+  const [participantRole, setParticipantRole] = useState<TripRole>("user");
   const [isEditingTrip, setIsEditingTrip] = useState(false);
   const [editName, setEditName] = useState(trip.name);
   const [editDescription, setEditDescription] = useState(trip.description ?? "");
@@ -133,7 +140,7 @@ function TripDetailsPage({
   const [editStartDate, setEditStartDate] = useState(trip.startDate?.slice(0, 10) ?? "");
   const [editEndDate, setEditEndDate] = useState(trip.endDate?.slice(0, 10) ?? "");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviteRole, setInviteRole] = useState<TripRole>("user");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
@@ -294,8 +301,8 @@ function TripDetailsPage({
 
       if (!response.ok || !Array.isArray(data)) {
         setInviteError(
-          response.status === 404
-            ? "Only the trip owner can manage invites"
+          response.status === 403
+            ? "Only trip admins can manage invites"
             : ("error" in data && data.error) || "Failed to load invites"
         );
         return;
@@ -383,10 +390,16 @@ function TripDetailsPage({
     void loadTripDetails();
     void loadSummary();
     void loadParticipants();
-    void loadInvites();
+    if (canManage) {
+      void loadInvites();
+    } else {
+      setInvites([]);
+      setIsInvitesLoading(false);
+    }
     void loadItineraryItems();
     void loadExpenses();
   }, [
+    canManage,
     loadExpenses,
     loadInvites,
     loadItineraryItems,
@@ -529,8 +542,8 @@ function TripDetailsPage({
       if (!response.ok || !("id" in data)) {
         if (response.status === 409) {
           setParticipantError("Participant already exists");
-        } else if (response.status === 404) {
-          setParticipantError("Only the trip owner can add participants");
+        } else if (response.status === 403) {
+          setParticipantError("Only trip admins can add participants");
         } else {
           setParticipantError(("error" in data && data.error) || "Failed to add participant");
         }
@@ -538,7 +551,7 @@ function TripDetailsPage({
       }
 
       setParticipantUserId("");
-      setParticipantRole("viewer");
+      setParticipantRole("user");
       setParticipantSuccessMessage("Participant added");
       await loadParticipants();
     } catch {
@@ -568,15 +581,15 @@ function TripDetailsPage({
 
       if (!response.ok || !("id" in data)) {
         setInviteError(
-          response.status === 404
-            ? "Only the trip owner can create invites"
+          response.status === 403
+            ? "Only trip admins can create invites"
             : ("error" in data && data.error) || "Failed to create invite"
         );
         return;
       }
 
       setInviteEmail("");
-      setInviteRole("viewer");
+      setInviteRole("user");
       setInviteSuccessMessage("Invite created");
       await loadInvites();
     } catch {
@@ -699,7 +712,12 @@ function TripDetailsPage({
         <div>
           <p className="eyebrow">Trip details</p>
           <h1>{currentTrip.name}</h1>
-          <p>{currentTrip.description || "No description added yet."}</p>
+          <p className="trip-description">
+            {currentTrip.description || "No description added yet."}
+          </p>
+          <span className={`trip-role-badge trip-role-${tripRole}`}>
+            {tripRole} access
+          </span>
         </div>
         <div className="details-actions">
           {canManage ? (
@@ -864,8 +882,9 @@ function TripDetailsPage({
         ) : null}
       </section>
 
-      <div className="participants-layout">
-        <section className="panel participant-form-card">
+      <div className={`participants-layout${canManage ? "" : " read-only-content-layout"}`}>
+        {canManage ? (
+          <section className="panel participant-form-card">
           <h2>Add participant</h2>
 
           <form className="form-stack" onSubmit={handleParticipantSubmit}>
@@ -884,9 +903,11 @@ function TripDetailsPage({
               Participant role
               <select
                 value={participantRole}
-                onChange={(event) => setParticipantRole(event.target.value)}
+                onChange={(event) => setParticipantRole(event.target.value as TripRole)}
               >
-                <option value="viewer">viewer</option>
+                <option value="admin">Admin — full control</option>
+                <option value="user">User — add plans and expenses</option>
+                <option value="guest">Guest — view only</option>
               </select>
             </label>
 
@@ -896,7 +917,8 @@ function TripDetailsPage({
           </form>
 
           {participantSuccessMessage ? <p className="success">{participantSuccessMessage}</p> : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className="participants-section">
           <div className="section-heading">
@@ -930,7 +952,8 @@ function TripDetailsPage({
         </section>
       </div>
 
-      <div className="invites-layout">
+      {canManage ? (
+        <div className="invites-layout">
         <section className="panel invite-form-card">
           <h2>Create invite</h2>
 
@@ -947,8 +970,13 @@ function TripDetailsPage({
 
             <label>
               Invite role
-              <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value)}>
-                <option value="viewer">viewer</option>
+              <select
+                value={inviteRole}
+                onChange={(event) => setInviteRole(event.target.value as TripRole)}
+              >
+                <option value="admin">Admin — full control</option>
+                <option value="user">User — add plans and expenses</option>
+                <option value="guest">Guest — view only</option>
               </select>
             </label>
 
@@ -994,10 +1022,12 @@ function TripDetailsPage({
             </ul>
           ) : null}
         </section>
-      </div>
+        </div>
+      ) : null}
 
-      <div className="itinerary-layout">
-        <section className="panel itinerary-form-card">
+      <div className={`itinerary-layout${canContribute ? "" : " read-only-content-layout"}`}>
+        {canContribute ? (
+          <section className="panel itinerary-form-card">
           <h2>Add itinerary item</h2>
 
           <form className="form-stack" onSubmit={handleItinerarySubmit}>
@@ -1036,7 +1066,8 @@ function TripDetailsPage({
           </form>
 
           {successMessage ? <p className="success">{successMessage}</p> : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className="itinerary-section">
           <div className="section-heading">
@@ -1072,8 +1103,9 @@ function TripDetailsPage({
         </section>
       </div>
 
-      <div className="expenses-layout">
-        <section className="panel expense-form-card">
+      <div className={`expenses-layout${canContribute ? "" : " read-only-content-layout"}`}>
+        {canContribute ? (
+          <section className="panel expense-form-card">
           <h2>Add expense</h2>
 
           <form className="form-stack" onSubmit={handleExpenseSubmit}>
@@ -1128,7 +1160,8 @@ function TripDetailsPage({
           </form>
 
           {expenseSuccessMessage ? <p className="success">{expenseSuccessMessage}</p> : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className="expenses-section">
           <div className="expense-total-card">
