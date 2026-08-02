@@ -42,6 +42,7 @@ export type AcceptTripInviteResponse = {
 export type TripInvitePreview = {
   tripId: number;
   tripName: string;
+  inviterName: string;
   email: string;
   role: TripRole;
   accountExists: boolean;

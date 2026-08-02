@@ -804,6 +804,7 @@ describe("trip-service endpoints", () => {
     expect(response.body).toEqual(
       expect.objectContaining({
         tripId,
+        inviterName: "Owner Traveler",
         email: invitedEmail,
         role: "user",
         accountExists: true,
