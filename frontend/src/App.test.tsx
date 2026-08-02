@@ -1064,9 +1064,13 @@ describe("TripBuddy frontend", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /paris/i }));
 
+    const metadataHeading = await screen.findByRole("heading", { name: "Trip metadata" });
+    const metadataSection = metadataHeading.closest("section") as HTMLElement;
     const participantsHeading = await screen.findByRole("heading", { name: "Participants" });
     const participantsSection = participantsHeading.closest("section") as HTMLElement;
 
+    expect(within(metadataSection).getByText("Ana Traveler")).toBeInTheDocument();
+    expect(within(metadataSection).queryByText("User #7")).not.toBeInTheDocument();
     expect(participantsHeading).toBeInTheDocument();
     expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("owner")).toBeInTheDocument();

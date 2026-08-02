@@ -126,6 +126,9 @@ function TripDetailsPage({
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSuccessMessage, setExpenseSuccessMessage] = useState("");
+  const creatorName =
+    participants.find((participant) => participant.userId === currentTrip.createdBy)?.name?.trim() ||
+    "Trip owner";
 
   const {
     convertedTotal: convertedExpenseTotal,
@@ -747,7 +750,7 @@ function TripDetailsPage({
             </div>
             <div>
               <dt>Created by</dt>
-              <dd>User #{currentTrip.createdBy}</dd>
+              <dd>{creatorName}</dd>
             </div>
           </dl>
         </section>
