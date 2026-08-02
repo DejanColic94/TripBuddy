@@ -13,7 +13,7 @@ import TripDetailsPage from "./pages/TripDetailsPage";
 import TripsPage from "./pages/TripsPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import type { AuthUser } from "./types/auth";
-import type { Trip } from "./types/trip";
+import { getUserTripRole, type Trip } from "./types/trip";
 
 function getInviteTokenFromPath(pathname: string) {
   const match =
@@ -317,7 +317,7 @@ function App() {
           <TripDetailsPage
             token={token}
             trip={selectedTrip}
-            canManage={currentUser?.id === selectedTrip.createdBy}
+            tripRole={getUserTripRole(selectedTrip, currentUser?.id) ?? "guest"}
             onBack={() => setSelectedTrip(null)}
             onTripUpdated={setSelectedTrip}
             onTripDeleted={() => setSelectedTrip(null)}

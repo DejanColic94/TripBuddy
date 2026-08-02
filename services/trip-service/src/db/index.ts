@@ -30,6 +30,11 @@ export async function initDb(): Promise<void> {
         name VARCHAR(255) NOT NULL,
         description TEXT,
         destination VARCHAR(255),
+        destination_place_id INTEGER,
+        destination_latitude DOUBLE PRECISION,
+        destination_longitude DOUBLE PRECISION,
+        destination_timezone VARCHAR(100),
+        destination_country_code CHAR(2),
         start_date DATE,
         end_date DATE,
         created_by INTEGER NOT NULL,
@@ -40,6 +45,18 @@ export async function initDb(): Promise<void> {
       ALTER TABLE trips
       ADD COLUMN IF NOT EXISTS destination VARCHAR(255)
     `);
+    await pool.query(`
+      ALTER TABLE trips
+        ADD COLUMN IF NOT EXISTS destination_place_id INTEGER,
+        ADD COLUMN IF NOT EXISTS destination_latitude DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS destination_longitude DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS destination_timezone VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS destination_country_code CHAR(2)
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS trips_created_by_lower_name_key
+      ON trips (created_by, LOWER(name))
+    `);
     console.log("[DB] Trips table ensured");
 
     await pool.query(`
@@ -47,7 +64,8 @@ export async function initDb(): Promise<void> {
         id SERIAL PRIMARY KEY,
         trip_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+        role VARCHAR(50) NOT NULL DEFAULT 'user'
+          CHECK (role IN ('admin', 'user', 'guest')),
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -75,12 +93,43 @@ export async function initDb(): Promise<void> {
         trip_id INTEGER NOT NULL,
         email VARCHAR(255) NOT NULL,
         token VARCHAR(255) UNIQUE NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+        inviter_name VARCHAR(255),
+        invited_by_user_id INTEGER,
+        accepted_by_user_id INTEGER,
+        role VARCHAR(50) NOT NULL DEFAULT 'user'
+          CHECK (role IN ('admin', 'user', 'guest')),
         accepted_at TIMESTAMP NULL,
         expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ADD COLUMN IF NOT EXISTS inviter_name VARCHAR(255)
+    `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ADD COLUMN IF NOT EXISTS invited_by_user_id INTEGER
+    `);
+    await pool.query(`
+      ALTER TABLE trip_invites
+      ADD COLUMN IF NOT EXISTS accepted_by_user_id INTEGER
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS trip_contacts (
+        id SERIAL PRIMARY KEY,
+        user_one_id INTEGER NOT NULL,
+        user_two_id INTEGER NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT trip_contacts_distinct_users CHECK (user_one_id < user_two_id),
+        CONSTRAINT trip_contacts_unique_pair UNIQUE (user_one_id, user_two_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS trip_contacts_user_two_id_idx
+      ON trip_contacts (user_two_id)
+    `);
+    console.log("[DB] Trip contacts table ensured");
     await pool.query(`
       ALTER TABLE trip_invites
       ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP

@@ -119,6 +119,37 @@ export async function getUserNames(
   }
 }
 
+export async function getUsersByIds(userIds: number[]): Promise<IdentityUser[]> {
+  const uniqueUserIds = Array.from(new Set(userIds));
+
+  if (uniqueUserIds.length === 0) {
+    return [];
+  }
+
+  const identityServiceUrl = normalizeBaseUrl(getRequiredEnv("IDENTITY_SERVICE_URL"));
+  const internalServiceSecret = getRequiredEnv("INTERNAL_SERVICE_SECRET");
+  const response = await fetchWithTimeout(
+    `${identityServiceUrl}/internal/users/by-ids?ids=${uniqueUserIds.join(",")}`,
+    {
+      headers: {
+        "X-Internal-Service-Secret": internalServiceSecret,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new IdentityClientError("Identity Service user lookup failed");
+  }
+
+  const users = await response.json();
+
+  if (!Array.isArray(users) || !users.every(isIdentityUser)) {
+    throw new IdentityClientError("Identity Service returned invalid users");
+  }
+
+  return users;
+}
+
 export async function getUserByEmail(email: string): Promise<IdentityUser | null> {
   const identityServiceUrl = normalizeBaseUrl(getRequiredEnv("IDENTITY_SERVICE_URL"));
   const internalServiceSecret = getRequiredEnv("INTERNAL_SERVICE_SECRET");
