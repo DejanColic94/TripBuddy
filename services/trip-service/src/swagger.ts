@@ -33,7 +33,7 @@ const swaggerSpec = swaggerJsdoc({
           type: "object",
           properties: {
             id: { type: "number", example: 1 },
-            name: { type: "string", example: "Paris" },
+            name: { type: "string", maxLength: 255, example: "Paris" },
             description: { type: "string", nullable: true, example: "Spring city break" },
             destination: { type: "string", example: "Paris, France" },
             destinationId: { type: "integer", example: 2988507 },
@@ -77,7 +77,7 @@ const swaggerSpec = swaggerJsdoc({
             "endDate",
           ],
           properties: {
-            name: { type: "string", example: "Paris" },
+            name: { type: "string", maxLength: 255, example: "Paris" },
             description: { type: "string", example: "Spring city break" },
             destination: { type: "string", example: "Paris, France" },
             destinationId: { type: "integer", example: 2988507 },
@@ -103,7 +103,7 @@ const swaggerSpec = swaggerJsdoc({
             "endDate",
           ],
           properties: {
-            name: { type: "string", example: "Paris" },
+            name: { type: "string", maxLength: 255, example: "Paris" },
             description: { type: "string", nullable: true, example: "Spring city break" },
             destination: { type: "string", example: "Paris, France" },
             destinationId: { type: "integer", example: 2988507 },
@@ -270,6 +270,7 @@ const swaggerSpec = swaggerJsdoc({
               },
             },
             "400": { description: "Invalid request body" },
+            "409": { description: "The owner already has a trip with this name" },
             ...authResponses,
           },
         },
@@ -320,6 +321,7 @@ const swaggerSpec = swaggerJsdoc({
             "401": { description: "Unauthorized" },
             "403": { description: "Authenticated user is not the trip owner" },
             "404": { description: "Trip not found" },
+            "409": { description: "The owner already has a trip with this name" },
           },
         },
         delete: {

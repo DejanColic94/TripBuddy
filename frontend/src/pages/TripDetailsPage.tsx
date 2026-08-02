@@ -744,7 +744,12 @@ function TripDetailsPage({
           <form className="form-stack" onSubmit={handleTripUpdate}>
             <label>
               Trip name
-              <input value={editName} onChange={(event) => setEditName(event.target.value)} required />
+              <input
+                value={editName}
+                maxLength={255}
+                onChange={(event) => setEditName(event.target.value)}
+                required
+              />
             </label>
             <label>
               Description

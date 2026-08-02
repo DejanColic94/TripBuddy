@@ -226,6 +226,18 @@ describe("trip-service endpoints", () => {
   let tripId = 0;
   let inviteToken = "";
   let duplicateParticipantInviteToken = "";
+  const validTripPayload = {
+    name: "Test Trip",
+    description: "A test trip",
+    destination: "Paris, France",
+    destinationId: 2988507,
+    destinationLatitude: 48.85341,
+    destinationLongitude: 2.3488,
+    destinationTimezone: "Europe/Paris",
+    destinationCountryCode: "fr",
+    startDate: "2026-06-01",
+    endDate: "2026-06-05",
+  };
 
   it("rejects /trips without token", async () => {
     const response = await request(app).get("/trips");
@@ -272,18 +284,7 @@ describe("trip-service endpoints", () => {
     const response = await request(app)
       .post("/trips")
       .set("Authorization", `Bearer ${token}`)
-      .send({
-        name: "Test Trip",
-        description: "A test trip",
-        destination: "Paris, France",
-        destinationId: 2988507,
-        destinationLatitude: 48.85341,
-        destinationLongitude: 2.3488,
-        destinationTimezone: "Europe/Paris",
-        destinationCountryCode: "fr",
-        startDate: "2026-06-01",
-        endDate: "2026-06-05",
-      });
+      .send(validTripPayload);
 
     expect(response.status).toBe(201);
     expect(response.body.name).toBe("Test Trip");
@@ -298,6 +299,54 @@ describe("trip-service endpoints", () => {
       })
     );
     tripId = response.body.id;
+  });
+
+  it("rejects duplicate trip names for the same owner regardless of case", async () => {
+    const response = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "  test trip  " });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("You already have a trip with this name");
+  });
+
+  it("allows different owners to use the same trip name", async () => {
+    const createResponse = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${nonOwnerToken}`)
+      .send({ ...validTripPayload, name: "TEST TRIP" });
+
+    expect(createResponse.status).toBe(201);
+
+    const deleteResponse = await request(app)
+      .delete(`/trips/${createResponse.body.id}`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(deleteResponse.status).toBe(204);
+  });
+
+  it("rejects renaming a trip to another trip name owned by the same user", async () => {
+    const secondTripResponse = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "Second Trip" });
+
+    expect(secondTripResponse.status).toBe(201);
+
+    const updateResponse = await request(app)
+      .put(`/trips/${secondTripResponse.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "test trip" });
+
+    expect(updateResponse.status).toBe(409);
+    expect(updateResponse.body.error).toBe("You already have a trip with this name");
+
+    const deleteResponse = await request(app)
+      .delete(`/trips/${secondTripResponse.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(deleteResponse.status).toBe(204);
   });
 
   it("adds the trip creator as owner participant", async () => {

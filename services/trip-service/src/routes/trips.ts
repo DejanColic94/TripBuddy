@@ -198,6 +198,9 @@ function validateTripBody(body: CreateTripBody):
   if (typeof name !== "string" || !name.trim()) {
     return { error: "name is required" };
   }
+  if (name.trim().length > 255) {
+    return { error: "name must be 255 characters or fewer" };
+  }
   if (description !== undefined && typeof description !== "string") {
     return { error: "description must be a string" };
   }
@@ -1001,6 +1004,13 @@ router.put(
         return res.status(400).json({ error: "startDate and endDate must be valid dates" });
       }
 
+      if (
+        dbError.code === "23505" &&
+        dbError.constraint === "trips_created_by_lower_name_key"
+      ) {
+        return res.status(409).json({ error: "You already have a trip with this name" });
+      }
+
       console.error("[TRIPS] Failed to update trip:", error);
       return res.status(500).json({ error: "Failed to update trip" });
     }
@@ -1590,6 +1600,13 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
 
     if (dbError.code === "22007") {
       return res.status(400).json({ error: "startDate and endDate must be valid dates" });
+    }
+
+    if (
+      dbError.code === "23505" &&
+      dbError.constraint === "trips_created_by_lower_name_key"
+    ) {
+      return res.status(409).json({ error: "You already have a trip with this name" });
     }
 
     console.error("[TRIPS] Failed to create trip:", error);

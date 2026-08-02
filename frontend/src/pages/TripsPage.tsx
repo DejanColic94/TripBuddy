@@ -165,7 +165,12 @@ function TripsPage({
           <form className="form-stack" onSubmit={handleSubmit}>
             <label>
               Name
-              <input value={name} onChange={(event) => setName(event.target.value)} required />
+              <input
+                value={name}
+                maxLength={255}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
             </label>
 
             <label>

@@ -53,6 +53,10 @@ export async function initDb(): Promise<void> {
         ADD COLUMN IF NOT EXISTS destination_timezone VARCHAR(100),
         ADD COLUMN IF NOT EXISTS destination_country_code CHAR(2)
     `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS trips_created_by_lower_name_key
+      ON trips (created_by, LOWER(name))
+    `);
     console.log("[DB] Trips table ensured");
 
     await pool.query(`
