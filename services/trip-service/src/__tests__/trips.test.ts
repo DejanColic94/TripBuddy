@@ -656,8 +656,8 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${nonOwnerToken}`);
 
     expect(updateResponse.status).toBe(404);
-    expect(deleteResponse.status).toBe(403);
-    expect(deleteResponse.body.error).toBe("Forbidden");
+    expect(deleteResponse.status).toBe(404);
+    expect(deleteResponse.body.error).toBe("Trip not found");
   });
 
   it("rejects an invalid trip update payload", async () => {
@@ -1328,7 +1328,8 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${participantToken}`);
 
     expect(updateResponse.status).toBe(404);
-    expect(deleteResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(403);
+    expect(deleteResponse.body.error).toBe("Forbidden");
   });
 
   it("gets trip summary", async () => {
