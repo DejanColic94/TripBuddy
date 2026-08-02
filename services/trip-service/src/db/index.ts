@@ -30,6 +30,11 @@ export async function initDb(): Promise<void> {
         name VARCHAR(255) NOT NULL,
         description TEXT,
         destination VARCHAR(255),
+        destination_place_id INTEGER,
+        destination_latitude DOUBLE PRECISION,
+        destination_longitude DOUBLE PRECISION,
+        destination_timezone VARCHAR(100),
+        destination_country_code CHAR(2),
         start_date DATE,
         end_date DATE,
         created_by INTEGER NOT NULL,
@@ -39,6 +44,14 @@ export async function initDb(): Promise<void> {
     await pool.query(`
       ALTER TABLE trips
       ADD COLUMN IF NOT EXISTS destination VARCHAR(255)
+    `);
+    await pool.query(`
+      ALTER TABLE trips
+        ADD COLUMN IF NOT EXISTS destination_place_id INTEGER,
+        ADD COLUMN IF NOT EXISTS destination_latitude DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS destination_longitude DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS destination_timezone VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS destination_country_code CHAR(2)
     `);
     console.log("[DB] Trips table ensured");
 

@@ -233,6 +233,41 @@ describe("trip-service endpoints", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects a destination that was not selected from location search", async () => {
+    const response = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Unstructured Trip",
+        destination: "Whatever I typed",
+        startDate: "2026-06-01",
+        endDate: "2026-06-05",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("destinationId must be a positive integer");
+  });
+
+  it("rejects a trip whose start date is after its end date", async () => {
+    const response = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Backwards Trip",
+        destination: "Paris, France",
+        destinationId: 2988507,
+        destinationLatitude: 48.85341,
+        destinationLongitude: 2.3488,
+        destinationTimezone: "Europe/Paris",
+        destinationCountryCode: "FR",
+        startDate: "2026-06-05",
+        endDate: "2026-06-01",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("startDate must not be after endDate");
+  });
+
   it("creates a trip with a valid token", async () => {
     const response = await request(app)
       .post("/trips")
@@ -240,14 +275,28 @@ describe("trip-service endpoints", () => {
       .send({
         name: "Test Trip",
         description: "A test trip",
-        destination: "Paris",
+        destination: "Paris, France",
+        destinationId: 2988507,
+        destinationLatitude: 48.85341,
+        destinationLongitude: 2.3488,
+        destinationTimezone: "Europe/Paris",
+        destinationCountryCode: "fr",
         startDate: "2026-06-01",
         endDate: "2026-06-05",
       });
 
     expect(response.status).toBe(201);
     expect(response.body.name).toBe("Test Trip");
-    expect(response.body.destination).toBe("Paris");
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        destination: "Paris, France",
+        destinationId: 2988507,
+        destinationLatitude: 48.85341,
+        destinationLongitude: 2.3488,
+        destinationTimezone: "Europe/Paris",
+        destinationCountryCode: "FR",
+      })
+    );
     tripId = response.body.id;
   });
 
@@ -1130,7 +1179,12 @@ describe("trip-service endpoints", () => {
       .send({
         name: "Updated Test Trip",
         description: "Updated description",
-        destination: "Rome",
+        destination: "Rome, Italy",
+        destinationId: 3169070,
+        destinationLatitude: 41.89193,
+        destinationLongitude: 12.51133,
+        destinationTimezone: "Europe/Rome",
+        destinationCountryCode: "IT",
         startDate: "2026-07-01",
         endDate: "2026-07-08",
       });
@@ -1141,7 +1195,9 @@ describe("trip-service endpoints", () => {
         id: tripId,
         name: "Updated Test Trip",
         description: "Updated description",
-        destination: "Rome",
+        destination: "Rome, Italy",
+        destinationId: 3169070,
+        destinationCountryCode: "IT",
       })
     );
   });

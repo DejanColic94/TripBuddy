@@ -16,6 +16,11 @@ type TripRow = {
   name: string;
   description: string | null;
   destination: string | null;
+  destination_place_id: number | null;
+  destination_latitude: number | null;
+  destination_longitude: number | null;
+  destination_timezone: string | null;
+  destination_country_code: string | null;
   start_date: string | null;
   end_date: string | null;
   created_by: number;
@@ -36,8 +41,26 @@ type CreateTripBody = {
   name?: string;
   description?: string;
   destination?: string;
+  destinationId?: number;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+  destinationTimezone?: string;
+  destinationCountryCode?: string;
   startDate?: string;
   endDate?: string;
+};
+
+type ValidatedTripBody = {
+  name: string;
+  description: string | null;
+  destination: string;
+  destinationId: number;
+  destinationLatitude: number;
+  destinationLongitude: number;
+  destinationTimezone: string;
+  destinationCountryCode: string;
+  startDate: string;
+  endDate: string;
 };
 
 type TripParticipantRow = {
@@ -156,12 +179,103 @@ function isValidDateOnly(value: string) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function validateTripBody(body: CreateTripBody):
+  | { value: ValidatedTripBody }
+  | { error: string } {
+  const {
+    name,
+    description,
+    destination,
+    destinationId,
+    destinationLatitude,
+    destinationLongitude,
+    destinationTimezone,
+    destinationCountryCode,
+    startDate,
+    endDate,
+  } = body;
+
+  if (typeof name !== "string" || !name.trim()) {
+    return { error: "name is required" };
+  }
+  if (description !== undefined && typeof description !== "string") {
+    return { error: "description must be a string" };
+  }
+  if (typeof destination !== "string" || !destination.trim()) {
+    return { error: "destination is required" };
+  }
+  if (destination.trim().length > 255) {
+    return { error: "destination must be 255 characters or fewer" };
+  }
+  if (!Number.isInteger(destinationId) || (destinationId as number) <= 0) {
+    return { error: "destinationId must be a positive integer" };
+  }
+  if (
+    typeof destinationLatitude !== "number" ||
+    !Number.isFinite(destinationLatitude) ||
+    destinationLatitude < -90 ||
+    destinationLatitude > 90
+  ) {
+    return { error: "destinationLatitude must be between -90 and 90" };
+  }
+  if (
+    typeof destinationLongitude !== "number" ||
+    !Number.isFinite(destinationLongitude) ||
+    destinationLongitude < -180 ||
+    destinationLongitude > 180
+  ) {
+    return { error: "destinationLongitude must be between -180 and 180" };
+  }
+  if (
+    typeof destinationTimezone !== "string" ||
+    !destinationTimezone.trim() ||
+    destinationTimezone.trim().length > 100
+  ) {
+    return { error: "destinationTimezone is required" };
+  }
+  if (
+    typeof destinationCountryCode !== "string" ||
+    !/^[A-Za-z]{2}$/.test(destinationCountryCode.trim())
+  ) {
+    return { error: "destinationCountryCode must be a two-letter country code" };
+  }
+  if (typeof startDate !== "string" || !isValidDateOnly(startDate)) {
+    return { error: "startDate must be a valid date" };
+  }
+  if (typeof endDate !== "string" || !isValidDateOnly(endDate)) {
+    return { error: "endDate must be a valid date" };
+  }
+  if (startDate > endDate) {
+    return { error: "startDate must not be after endDate" };
+  }
+
+  return {
+    value: {
+      name: name.trim(),
+      description: description?.trim() || null,
+      destination: destination.trim(),
+      destinationId: destinationId as number,
+      destinationLatitude,
+      destinationLongitude,
+      destinationTimezone: destinationTimezone.trim(),
+      destinationCountryCode: destinationCountryCode.trim().toUpperCase(),
+      startDate,
+      endDate,
+    },
+  };
+}
+
 function mapTrip(trip: TripRow, participants: TripParticipantSummary[] = []) {
   return {
     id: trip.id,
     name: trip.name,
     description: trip.description,
     destination: trip.destination,
+    destinationId: trip.destination_place_id,
+    destinationLatitude: trip.destination_latitude,
+    destinationLongitude: trip.destination_longitude,
+    destinationTimezone: trip.destination_timezone,
+    destinationCountryCode: trip.destination_country_code,
     startDate: trip.start_date,
     endDate: trip.end_date,
     createdBy: trip.created_by,
@@ -429,7 +543,9 @@ router.get(
 
       const [tripResult, itineraryResult, expensesResult] = await Promise.all([
         pool.query<TripRow>(
-          `SELECT id, name, description, destination, start_date, end_date,
+          `SELECT id, name, description, destination, destination_place_id,
+            destination_latitude, destination_longitude, destination_timezone,
+            destination_country_code, start_date, end_date,
             created_by, created_at FROM trips WHERE id = $1`,
           [access.trip_id]
         ),
@@ -692,6 +808,9 @@ router.get("/", async (req: Request, res: Response) => {
       `
         WITH visible_trips AS (
           SELECT DISTINCT trips.id, trips.name, trips.description, trips.destination,
+            trips.destination_place_id, trips.destination_latitude,
+            trips.destination_longitude, trips.destination_timezone,
+            trips.destination_country_code,
             trips.start_date, trips.end_date,
             trips.created_by, trips.created_at
           FROM trips
@@ -703,6 +822,9 @@ router.get("/", async (req: Request, res: Response) => {
         )
         SELECT visible_trips.id, visible_trips.name, visible_trips.description,
           visible_trips.destination,
+          visible_trips.destination_place_id, visible_trips.destination_latitude,
+          visible_trips.destination_longitude, visible_trips.destination_timezone,
+          visible_trips.destination_country_code,
           visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
           visible_trips.created_at,
           COALESCE(
@@ -717,6 +839,9 @@ router.get("/", async (req: Request, res: Response) => {
           ON trip_participants.trip_id = visible_trips.id
         GROUP BY visible_trips.id, visible_trips.name, visible_trips.description,
           visible_trips.destination,
+          visible_trips.destination_place_id, visible_trips.destination_latitude,
+          visible_trips.destination_longitude, visible_trips.destination_timezone,
+          visible_trips.destination_country_code,
           visible_trips.start_date, visible_trips.end_date, visible_trips.created_by,
           visible_trips.created_at
         ORDER BY visible_trips.created_at DESC
@@ -767,6 +892,9 @@ router.get("/:id", async (req: Request, res: Response) => {
     const result = await pool.query<TripWithParticipantsRow>(
       `
         SELECT trips.id, trips.name, trips.description, trips.destination,
+          trips.destination_place_id, trips.destination_latitude,
+          trips.destination_longitude, trips.destination_timezone,
+          trips.destination_country_code,
           trips.start_date, trips.end_date,
           trips.created_by, trips.created_at,
           COALESCE(
@@ -781,6 +909,9 @@ router.get("/:id", async (req: Request, res: Response) => {
           ON trip_participants.trip_id = trips.id
         WHERE trips.id = $1
         GROUP BY trips.id, trips.name, trips.description, trips.destination,
+          trips.destination_place_id, trips.destination_latitude,
+          trips.destination_longitude, trips.destination_timezone,
+          trips.destination_country_code,
           trips.start_date, trips.end_date,
           trips.created_by, trips.created_at
       `,
@@ -813,30 +944,9 @@ router.put(
     }
 
     const tripId = Number(req.params.id);
-    const { name, description, destination, startDate, endDate } = req.body;
 
     if (!Number.isInteger(tripId)) {
       return res.status(400).json({ error: "Invalid trip id" });
-    }
-
-    if (typeof name !== "string" || name.trim().length === 0) {
-      return res.status(400).json({ error: "name is required" });
-    }
-
-    if (description !== undefined && typeof description !== "string") {
-      return res.status(400).json({ error: "description must be a string" });
-    }
-
-    if (destination !== undefined && typeof destination !== "string") {
-      return res.status(400).json({ error: "destination must be a string" });
-    }
-
-    if (startDate !== undefined && typeof startDate !== "string") {
-      return res.status(400).json({ error: "startDate must be a string" });
-    }
-
-    if (endDate !== undefined && typeof endDate !== "string") {
-      return res.status(400).json({ error: "endDate must be a string" });
     }
 
     try {
@@ -850,19 +960,35 @@ router.put(
         return res.status(403).json({ error: "Forbidden" });
       }
 
+      const validation = validateTripBody(req.body);
+      if ("error" in validation) {
+        return res.status(400).json({ error: validation.error });
+      }
+      const tripDetails = validation.value;
+
       const result = await pool.query<TripRow>(
         `
           UPDATE trips
-          SET name = $1, description = $2, destination = $3, start_date = $4, end_date = $5
-          WHERE id = $6
-          RETURNING id, name, description, destination, start_date, end_date, created_by, created_at
+          SET name = $1, description = $2, destination = $3,
+            destination_place_id = $4, destination_latitude = $5,
+            destination_longitude = $6, destination_timezone = $7,
+            destination_country_code = $8, start_date = $9, end_date = $10
+          WHERE id = $11
+          RETURNING id, name, description, destination, destination_place_id,
+            destination_latitude, destination_longitude, destination_timezone,
+            destination_country_code, start_date, end_date, created_by, created_at
         `,
         [
-          name.trim(),
-          description?.trim() || null,
-          destination?.trim() || null,
-          startDate || null,
-          endDate || null,
+          tripDetails.name,
+          tripDetails.description,
+          tripDetails.destination,
+          tripDetails.destinationId,
+          tripDetails.destinationLatitude,
+          tripDetails.destinationLongitude,
+          tripDetails.destinationTimezone,
+          tripDetails.destinationCountryCode,
+          tripDetails.startDate,
+          tripDetails.endDate,
           tripId,
         ]
       );
@@ -1415,41 +1541,36 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { name, description, destination, startDate, endDate } = req.body;
-
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return res.status(400).json({ error: "name is required" });
+  const validation = validateTripBody(req.body);
+  if ("error" in validation) {
+    return res.status(400).json({ error: validation.error });
   }
-
-  if (description !== undefined && typeof description !== "string") {
-    return res.status(400).json({ error: "description must be a string" });
-  }
-
-  if (destination !== undefined && typeof destination !== "string") {
-    return res.status(400).json({ error: "destination must be a string" });
-  }
-
-  if (startDate !== undefined && typeof startDate !== "string") {
-    return res.status(400).json({ error: "startDate must be a string" });
-  }
-
-  if (endDate !== undefined && typeof endDate !== "string") {
-    return res.status(400).json({ error: "endDate must be a string" });
-  }
+  const tripDetails = validation.value;
 
   try {
     const result = await pool.query<TripRow>(
       `
-        INSERT INTO trips (name, description, destination, start_date, end_date, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, name, description, destination, start_date, end_date, created_by, created_at
+        INSERT INTO trips (
+          name, description, destination, destination_place_id,
+          destination_latitude, destination_longitude, destination_timezone,
+          destination_country_code, start_date, end_date, created_by
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id, name, description, destination, destination_place_id,
+          destination_latitude, destination_longitude, destination_timezone,
+          destination_country_code, start_date, end_date, created_by, created_at
       `,
       [
-        name.trim(),
-        description?.trim() || null,
-        destination?.trim() || null,
-        startDate || null,
-        endDate || null,
+        tripDetails.name,
+        tripDetails.description,
+        tripDetails.destination,
+        tripDetails.destinationId,
+        tripDetails.destinationLatitude,
+        tripDetails.destinationLongitude,
+        tripDetails.destinationTimezone,
+        tripDetails.destinationCountryCode,
+        tripDetails.startDate,
+        tripDetails.endDate,
         req.user.id,
       ]
     );
