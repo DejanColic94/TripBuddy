@@ -851,6 +851,41 @@ button:disabled {
   top: 24px;
 }
 
+.contact-search-results {
+  display: grid;
+  max-height: 220px;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.contact-search-option {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #d8d1c3;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2933;
+  text-align: left;
+}
+
+.contact-search-option:hover,
+.contact-search-option[aria-pressed="true"] {
+  border-color: #247a67;
+  background: #eef7f4;
+}
+
+.contact-search-option strong {
+  color: #17483c;
+}
+
+.contact-search-option span {
+  color: #6b7280;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
 .invite-form-card {
   position: sticky;
   top: 24px;

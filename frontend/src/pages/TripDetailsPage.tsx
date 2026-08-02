@@ -62,6 +62,12 @@ type TripParticipant = TripParticipantSummary & {
   createdAt?: string;
 };
 
+type TravelContact = {
+  userId: number;
+  name: string;
+  email: string;
+};
+
 type CreateTripParticipantResponse = TripParticipant | { error?: string };
 
 function getInviteAcceptedAt(invite: TripInvite) {
@@ -129,7 +135,9 @@ function TripDetailsPage({
   const [participants, setParticipants] = useState<TripParticipant[]>(trip.participants ?? []);
   const [invites, setInvites] = useState<TripInvite[]>([]);
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
-  const [participantUserId, setParticipantUserId] = useState("");
+  const [contacts, setContacts] = useState<TravelContact[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
+  const [selectedContactUserId, setSelectedContactUserId] = useState<number | null>(null);
   const [participantRole, setParticipantRole] = useState<TripRole>("user");
   const [isEditingTrip, setIsEditingTrip] = useState(false);
   const [editName, setEditName] = useState(trip.name);
@@ -153,6 +161,7 @@ function TripDetailsPage({
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
+  const [isContactsLoading, setIsContactsLoading] = useState(false);
   const [deletingParticipantUserId, setDeletingParticipantUserId] = useState<number | null>(null);
   const [updatingParticipantUserId, setUpdatingParticipantUserId] = useState<number | null>(null);
   const [isTripSaving, setIsTripSaving] = useState(false);
@@ -167,6 +176,7 @@ function TripDetailsPage({
   const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [participantError, setParticipantError] = useState("");
+  const [contactError, setContactError] = useState("");
   const [tripManagementError, setTripManagementError] = useState("");
   const [inviteError, setInviteError] = useState("");
   const [error, setError] = useState("");
@@ -290,6 +300,45 @@ function TripDetailsPage({
     }
   }, [onUnauthorized, token, trip.id]);
 
+  const loadContacts = useCallback(async () => {
+    if (!canManage) {
+      setContacts([]);
+      return;
+    }
+
+    setContactError("");
+    setIsContactsLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}/contacts`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        setContactError("Unauthorized");
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json()) as TravelContact[] | { error?: string };
+
+      if (!response.ok || !Array.isArray(data)) {
+        setContactError(
+          ("error" in data && data.error) || "Failed to load previous contacts"
+        );
+        return;
+      }
+
+      setContacts(data);
+    } catch {
+      setContactError("Failed to load previous contacts");
+    } finally {
+      setIsContactsLoading(false);
+    }
+  }, [canManage, onUnauthorized, token, trip.id]);
+
   const loadInvites = useCallback(async () => {
     setInviteError("");
     setIsInvitesLoading(true);
@@ -396,8 +445,10 @@ function TripDetailsPage({
     void loadParticipants();
     if (canManage) {
       void loadInvites();
+      void loadContacts();
     } else {
       setInvites([]);
+      setContacts([]);
       setIsInvitesLoading(false);
     }
     void loadItineraryItems();
@@ -405,6 +456,7 @@ function TripDetailsPage({
   }, [
     canManage,
     loadExpenses,
+    loadContacts,
     loadInvites,
     loadItineraryItems,
     loadParticipants,
@@ -519,7 +571,14 @@ function TripDetailsPage({
   const handleParticipantSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setParticipantError("");
+    setContactError("");
     setParticipantSuccessMessage("");
+
+    if (!selectedContactUserId) {
+      setContactError("Choose someone from your previous contacts");
+      return;
+    }
+
     setIsParticipantSubmitting(true);
 
     try {
@@ -530,7 +589,7 @@ function TripDetailsPage({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userId: Number(participantUserId),
+          userId: selectedContactUserId,
           role: participantRole,
         }),
       });
@@ -545,21 +604,24 @@ function TripDetailsPage({
 
       if (!response.ok || !("id" in data)) {
         if (response.status === 409) {
-          setParticipantError("Participant already exists");
+          setContactError("Participant already exists");
         } else if (response.status === 403) {
-          setParticipantError("Only trip admins can add participants");
+          setContactError(
+            ("error" in data && data.error) || "Only trip admins can add participants"
+          );
         } else {
-          setParticipantError(("error" in data && data.error) || "Failed to add participant");
+          setContactError(("error" in data && data.error) || "Failed to add participant");
         }
         return;
       }
 
-      setParticipantUserId("");
+      setContactSearch("");
+      setSelectedContactUserId(null);
       setParticipantRole("user");
       setParticipantSuccessMessage("Participant added");
-      await loadParticipants();
+      await Promise.all([loadParticipants(), loadContacts()]);
     } catch {
-      setParticipantError("Failed to add participant");
+      setContactError("Failed to add participant");
     } finally {
       setIsParticipantSubmitting(false);
     }
@@ -891,6 +953,15 @@ function TripDetailsPage({
     setDeletingExpenseId(null);
   };
 
+  const normalizedContactSearch = contactSearch.trim().toLowerCase();
+  const matchingContacts = contacts.filter(
+    (contact) =>
+      selectedContactUserId === contact.userId ||
+      !normalizedContactSearch ||
+      contact.name.toLowerCase().includes(normalizedContactSearch) ||
+      contact.email.toLowerCase().includes(normalizedContactSearch)
+  );
+
   return (
     <section className="page trip-details-page">
       <div className="details-hero">
@@ -1071,18 +1142,57 @@ function TripDetailsPage({
         {canManage ? (
           <section className="panel participant-form-card">
           <h2>Add participant</h2>
+          <p className="page-subtitle">
+            Choose someone connected to you through an accepted TripBuddy invitation.
+          </p>
 
           <form className="form-stack" onSubmit={handleParticipantSubmit}>
             <label>
-              Participant user ID
+              Search previous contacts
               <input
-                type="number"
-                min="1"
-                value={participantUserId}
-                onChange={(event) => setParticipantUserId(event.target.value)}
-                required
+                type="search"
+                value={contactSearch}
+                onChange={(event) => {
+                  setContactSearch(event.target.value);
+                  setSelectedContactUserId(null);
+                }}
+                placeholder="Name or email"
               />
             </label>
+
+            {isContactsLoading ? (
+              <p className="loading-state">Loading previous contacts...</p>
+            ) : null}
+
+            {!isContactsLoading && contacts.length === 0 ? (
+              <p className="empty-state">
+                No previous contacts yet. Invite someone by email first.
+              </p>
+            ) : null}
+
+            {!isContactsLoading && contacts.length > 0 ? (
+              <div className="contact-search-results" aria-label="Previous contacts">
+                {matchingContacts.length === 0 ? (
+                  <p className="empty-state">No matching previous contacts.</p>
+                ) : null}
+                {matchingContacts.map((contact) => (
+                    <button
+                      className="contact-search-option"
+                      type="button"
+                      key={contact.userId}
+                      aria-pressed={selectedContactUserId === contact.userId}
+                      onClick={() => {
+                        setSelectedContactUserId(contact.userId);
+                        setContactSearch(`${contact.name} (${contact.email})`);
+                        setContactError("");
+                      }}
+                    >
+                      <strong>{contact.name}</strong>
+                      <span>{contact.email}</span>
+                    </button>
+                  ))}
+              </div>
+            ) : null}
 
             <label>
               Participant role
@@ -1096,11 +1206,16 @@ function TripDetailsPage({
               </select>
             </label>
 
-            <button className="primary-button" type="submit" disabled={isParticipantSubmitting}>
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={isParticipantSubmitting || selectedContactUserId === null}
+            >
               {isParticipantSubmitting ? "Adding..." : "Add participant"}
             </button>
           </form>
 
+          {contactError ? <p className="error">{contactError}</p> : null}
           {participantSuccessMessage ? <p className="success">{participantSuccessMessage}</p> : null}
           </section>
         ) : null}

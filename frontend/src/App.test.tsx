@@ -1530,6 +1530,19 @@ describe("TripBuddy frontend", () => {
         return mockResponse(userParticipant, 201);
       }
 
+      if (url.endsWith("/trips/1/contacts")) {
+        const participantWasAdded = fetchMock.mock.calls.some(
+          ([calledUrl, calledInit]) =>
+            calledUrl.toString().endsWith("/trips/1/participants") &&
+            calledInit?.method === "POST"
+        );
+        return mockResponse(
+          participantWasAdded
+            ? []
+            : [{ userId: 8, name: "Milan Traveler", email: "milan@example.com" }]
+        );
+      }
+
       if (url.endsWith("/trips/1/participants")) {
         const participantCalls = fetchMock.mock.calls.filter(([calledUrl]) =>
           calledUrl.toString().endsWith("/trips/1/participants")
@@ -1555,7 +1568,8 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /paris/i }));
     await screen.findAllByText("Ana Traveler");
 
-    await user.type(screen.getByLabelText(/participant user id/i), "8");
+    await user.type(screen.getByLabelText(/search previous contacts/i), "Milan");
+    await user.click(screen.getByRole("button", { name: /Milan Traveler/ }));
     await user.selectOptions(screen.getByLabelText(/participant role/i), "user");
     await user.click(screen.getByRole("button", { name: /add participant/i }));
 
@@ -1592,6 +1606,12 @@ describe("TripBuddy frontend", () => {
         return mockResponse({ error: "Participant already exists" }, 409);
       }
 
+      if (url.endsWith("/trips/1/contacts")) {
+        return mockResponse([
+          { userId: 8, name: "Milan Traveler", email: "milan@example.com" },
+        ]);
+      }
+
       if (url.endsWith("/trips/1/participants")) {
         return mockResponse([ownerParticipant]);
       }
@@ -1611,7 +1631,8 @@ describe("TripBuddy frontend", () => {
     await user.click(await screen.findByRole("button", { name: /paris/i }));
     await screen.findAllByText("Ana Traveler");
 
-    await user.type(screen.getByLabelText(/participant user id/i), "7");
+    await user.type(screen.getByLabelText(/search previous contacts/i), "Milan");
+    await user.click(screen.getByRole("button", { name: /Milan Traveler/ }));
     await user.click(screen.getByRole("button", { name: /add participant/i }));
 
     expect(await screen.findByText("Participant already exists")).toBeInTheDocument();
