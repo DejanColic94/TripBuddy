@@ -188,6 +188,7 @@ function AcceptInvitePage({
             <>
               <div className="invite-summary">
                 <strong>{status.invite.tripName}</strong>
+                <p>Invited by {status.invite.inviterName}</p>
                 <p>Invited email: {status.invite.email}</p>
                 <p>Trip role: {status.invite.role}</p>
               </div>
