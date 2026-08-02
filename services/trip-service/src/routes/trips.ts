@@ -87,6 +87,7 @@ type TripInviteRow = {
   trip_id: number;
   email: string;
   token: string;
+  inviter_name?: string | null;
   role: string;
   accepted_at: string | null;
   expires_at?: string;
@@ -425,7 +426,8 @@ router.get(
       const result = await pool.query<TripInvitePreviewRow>(
         `
           SELECT trip_invites.id, trip_invites.trip_id, trip_invites.email,
-            trip_invites.token, trip_invites.role, trip_invites.accepted_at,
+            trip_invites.token, trip_invites.inviter_name, trip_invites.role,
+            trip_invites.accepted_at,
             trip_invites.expires_at, trip_invites.created_at,
             trips.name AS trip_name
           FROM trip_invites
@@ -453,6 +455,7 @@ router.get(
       return res.status(200).json({
         tripId: invite.trip_id,
         tripName: invite.trip_name,
+        inviterName: invite.inviter_name?.trim() || "A TripBuddy user",
         email: invite.email,
         role: invite.role,
         accountExists: Boolean(existingUser),
@@ -1165,20 +1168,21 @@ router.post(
 
       const inviteToken = generateInviteToken();
       const inviteRole = role ?? "user";
+      const inviterName = req.user.name?.trim() || "A TripBuddy user";
 
       const result = await client.query<TripInviteRow>(
         `
-          INSERT INTO trip_invites (trip_id, email, token, role)
-          VALUES ($1, $2, $3, $4)
-          RETURNING id, trip_id, email, token, role, accepted_at, created_at
+          INSERT INTO trip_invites (trip_id, email, token, inviter_name, role)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, trip_id, email, token, inviter_name, role, accepted_at, created_at
         `,
-        [tripId, normalizedEmail, inviteToken, inviteRole]
+        [tripId, normalizedEmail, inviteToken, inviterName, inviteRole]
       );
 
       try {
         await sendInvitationEmail({
           recipientEmail: normalizedEmail,
-          inviterName: req.user.name ?? "A TripBuddy user",
+          inviterName,
           tripName: trip.name,
           inviteToken,
         });

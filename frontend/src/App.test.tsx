@@ -1628,6 +1628,7 @@ describe("TripBuddy frontend", () => {
         return mockResponse({
           tripId: 1,
           tripName: "Lisbon Spring",
+          inviterName: "Ana Traveler",
           email: "friend@example.com",
           role: "user",
           accountExists: true,
@@ -1645,6 +1646,7 @@ describe("TripBuddy frontend", () => {
     render(<App />);
 
     expect(await screen.findByText("Lisbon Spring")).toBeInTheDocument();
+    expect(screen.getByText("Invited by Ana Traveler")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Accept invitation" }));
     expect(await screen.findByText("Invitation accepted")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open accepted trip/i })).toBeInTheDocument();
@@ -1665,6 +1667,7 @@ describe("TripBuddy frontend", () => {
         return mockResponse({
           tripId: 1,
           tripName: "Lisbon Spring",
+          inviterName: "Ana Traveler",
           email: "friend@example.com",
           role: "user",
           accountExists: false,
@@ -1685,6 +1688,8 @@ describe("TripBuddy frontend", () => {
     window.history.pushState({}, "", "/invite/public-token");
 
     render(<App />);
+
+    expect(await screen.findByText("Invited by Ana Traveler")).toBeInTheDocument();
 
     await user.type(await screen.findByLabelText(/^name$/i), "New Traveler");
     await user.type(screen.getByLabelText(/^password$/i), "password123");
