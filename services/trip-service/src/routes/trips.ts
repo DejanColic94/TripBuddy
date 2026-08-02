@@ -10,6 +10,12 @@ import {
 import pool from "../db";
 import authMiddleware, { optionalAuthMiddleware } from "../middleware/auth";
 import { sendInvitationEmail } from "../services/emailService";
+import {
+  isTripRole,
+  roleHasPermission,
+  type TripPermission,
+  type TripRole,
+} from "../tripRoles";
 
 type TripRow = {
   id: number;
@@ -352,39 +358,50 @@ function mapExpense(expense: ExpenseRow) {
   };
 }
 
-async function userOwnsTrip(tripId: number, userId: number): Promise<boolean> {
-  const result = await pool.query<{ id: number }>(
-    "SELECT id FROM trips WHERE id = $1 AND created_by = $2",
-    [tripId, userId]
-  );
+type TripAuthorization =
+  | { allowed: true; role: TripRole; createdBy: number }
+  | { allowed: false; status: 403 | 404 };
 
-  return result.rowCount !== null && result.rowCount > 0;
-}
-
-async function getTripOwnerId(tripId: number): Promise<number | null> {
-  const result = await pool.query<{ created_by: number }>(
-    "SELECT created_by FROM trips WHERE id = $1",
-    [tripId]
-  );
-
-  return result.rows[0]?.created_by ?? null;
-}
-
-async function userCanAccessTrip(tripId: number, userId: number): Promise<boolean> {
-  const result = await pool.query<{ id: number }>(
+async function authorizeTrip(
+  tripId: number,
+  userId: number,
+  permission: TripPermission
+): Promise<TripAuthorization> {
+  const result = await pool.query<{
+    created_by: number;
+    participant_role: string | null;
+  }>(
     `
-      SELECT trips.id
+      SELECT trips.created_by, trip_participants.role AS participant_role
       FROM trips
       LEFT JOIN trip_participants
         ON trip_participants.trip_id = trips.id
         AND trip_participants.user_id = $2
       WHERE trips.id = $1
-        AND (trips.created_by = $2 OR trip_participants.id IS NOT NULL)
     `,
     [tripId, userId]
   );
+  const trip = result.rows[0];
 
-  return result.rowCount !== null && result.rowCount > 0;
+  if (!trip) return { allowed: false, status: 404 };
+
+  const role = trip.created_by === userId ? "admin" : trip.participant_role;
+
+  if (!isTripRole(role)) return { allowed: false, status: 404 };
+  if (!roleHasPermission(role, permission)) {
+    return { allowed: false, status: 403 };
+  }
+
+  return { allowed: true, role, createdBy: trip.created_by };
+}
+
+function sendTripAuthorizationError(
+  res: Response,
+  authorization: Extract<TripAuthorization, { allowed: false }>
+) {
+  return res.status(authorization.status).json({
+    error: authorization.status === 403 ? "Forbidden" : "Trip not found",
+  });
 }
 
 function generateInviteToken() {
@@ -780,8 +797,9 @@ router.delete(
     }
 
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
-        return res.status(404).json({ error: "Trip not found" });
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
       }
       const result = await pool.query(
         `UPDATE trip_guest_access
@@ -888,8 +906,9 @@ router.get("/:id", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userCanAccessTrip(tripId, req.user.id))) {
-      return res.status(404).json({ error: "Trip not found" });
+    const authorization = await authorizeTrip(tripId, req.user.id, "view");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
     }
 
     const result = await pool.query<TripWithParticipantsRow>(
@@ -953,14 +972,9 @@ router.put(
     }
 
     try {
-      const ownerId = await getTripOwnerId(tripId);
-
-      if (ownerId === null) {
-        return res.status(404).json({ error: "Trip not found" });
-      }
-
-      if (ownerId !== req.user.id) {
-        return res.status(403).json({ error: "Forbidden" });
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
       }
 
       const validation = validateTripBody(req.body);
@@ -1028,24 +1042,23 @@ router.delete("/:id", async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Invalid trip id" });
   }
 
+  const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+  if (!authorization.allowed) {
+    return sendTripAuthorizationError(res, authorization);
+  }
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    const tripResult = await client.query<{ created_by: number }>(
-      "SELECT created_by FROM trips WHERE id = $1 FOR UPDATE",
+    const tripResult = await client.query<{ id: number }>(
+      "SELECT id FROM trips WHERE id = $1 FOR UPDATE",
       [tripId]
     );
-    const ownerId = tripResult.rows[0]?.created_by;
 
-    if (ownerId === undefined) {
+    if (!tripResult.rows[0]) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Trip not found" });
-    }
-
-    if (ownerId !== req.user.id) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ error: "Forbidden" });
     }
 
     await client.query("DELETE FROM trip_invites WHERE trip_id = $1", [tripId]);
@@ -1077,8 +1090,9 @@ router.get("/:id/invites", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userOwnsTrip(tripId, req.user.id))) {
-      return res.status(404).json({ error: "Trip not found" });
+    const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
     }
 
     const result = await pool.query<TripInviteRow>(
@@ -1123,8 +1137,8 @@ router.post(
       return res.status(400).json({ error: "email must be valid" });
     }
 
-    if (role !== undefined && role !== "viewer") {
-      return res.status(400).json({ error: "role must be viewer" });
+    if (role !== undefined && !isTripRole(role)) {
+      return res.status(400).json({ error: "role must be admin, user, or guest" });
     }
 
     const client = await pool.connect();
@@ -1132,9 +1146,15 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        await client.query("ROLLBACK");
+        return sendTripAuthorizationError(res, authorization);
+      }
+
       const tripResult = await client.query<OwnedTripInviteRow>(
-        "SELECT id, name FROM trips WHERE id = $1 AND created_by = $2 FOR UPDATE",
-        [tripId, req.user.id]
+        "SELECT id, name FROM trips WHERE id = $1 FOR UPDATE",
+        [tripId]
       );
       const trip = tripResult.rows[0];
 
@@ -1144,7 +1164,7 @@ router.post(
       }
 
       const inviteToken = generateInviteToken();
-      const inviteRole = role ?? "viewer";
+      const inviteRole = role ?? "user";
 
       const result = await client.query<TripInviteRow>(
         `
@@ -1209,8 +1229,9 @@ router.get("/:id/participants", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userCanAccessTrip(tripId, req.user.id))) {
-      return res.status(404).json({ error: "Trip not found" });
+    const authorization = await authorizeTrip(tripId, req.user.id, "view");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
     }
 
     const result = await pool.query<TripParticipantRow>(
@@ -1256,13 +1277,14 @@ router.post(
       return res.status(400).json({ error: "userId is required" });
     }
 
-    if (role !== undefined && role !== "viewer") {
-      return res.status(400).json({ error: "role must be viewer" });
+    if (role !== undefined && !isTripRole(role)) {
+      return res.status(400).json({ error: "role must be admin, user, or guest" });
     }
 
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
-        return res.status(404).json({ error: "Trip not found" });
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
       }
 
       const result = await pool.query<TripParticipantRow>(
@@ -1271,7 +1293,7 @@ router.post(
           VALUES ($1, $2, $3)
           RETURNING id, trip_id, user_id, role, created_at
         `,
-        [tripId, userId, role ?? "viewer"]
+        [tripId, userId, role ?? "user"]
       );
 
       const names = await getUserNames([userId], req.headers.authorization);
@@ -1292,6 +1314,119 @@ router.post(
   }
 );
 
+router.delete(
+  "/:id/participants/:userId",
+  async (req: Request<{ id: string; userId: string }>, res: Response) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const participantUserId = Number(req.params.userId);
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (!Number.isInteger(participantUserId)) {
+      return res.status(400).json({ error: "Invalid participant user id" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      if (participantUserId === authorization.createdBy) {
+        return res.status(400).json({ error: "Trip creator cannot be removed" });
+      }
+
+      const result = await pool.query(
+        `DELETE FROM trip_participants
+         WHERE trip_id = $1 AND user_id = $2
+         RETURNING user_id`,
+        [tripId, participantUserId]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Participant not found" });
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to remove trip participant:", error);
+      return res.status(500).json({ error: "Failed to remove trip participant" });
+    }
+  }
+);
+
+router.patch(
+  "/:id/participants/:userId",
+  async (
+    req: Request<{ id: string; userId: string }, {}, { role?: unknown }>,
+    res: Response
+  ) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const participantUserId = Number(req.params.userId);
+    const { role } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (!Number.isInteger(participantUserId)) {
+      return res.status(400).json({ error: "Invalid participant user id" });
+    }
+
+    if (!isTripRole(role)) {
+      return res.status(400).json({ error: "role must be admin, user, or guest" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      if (participantUserId === authorization.createdBy) {
+        return res.status(400).json({ error: "Trip creator role cannot be changed" });
+      }
+
+      const result = await pool.query<TripParticipantRow>(
+        `UPDATE trip_participants
+         SET role = $3
+         WHERE trip_id = $1 AND user_id = $2
+         RETURNING id, trip_id, user_id, role, created_at`,
+        [tripId, participantUserId, role]
+      );
+
+      if (!result.rows[0]) {
+        return res.status(404).json({ error: "Participant not found" });
+      }
+
+      const names = await getUserNames(
+        [participantUserId],
+        req.headers.authorization
+      );
+
+      return res.status(200).json(
+        mapTripParticipant(
+          result.rows[0],
+          names.get(participantUserId)
+        )
+      );
+    } catch (error) {
+      console.error("[TRIPS] Failed to update participant role:", error);
+      return res.status(500).json({ error: "Failed to update participant role" });
+    }
+  }
+);
+
 router.get("/:tripId/summary", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -1304,8 +1439,9 @@ router.get("/:tripId/summary", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userCanAccessTrip(tripId, req.user.id))) {
-      return res.status(404).json({ error: "Trip not found" });
+    const authorization = await authorizeTrip(tripId, req.user.id, "view");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
     }
 
     const result = await pool.query<TripSummaryRow>(
@@ -1350,8 +1486,9 @@ router.get("/:tripId/expenses", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userCanAccessTrip(tripId, req.user.id))) {
-      return res.status(404).json({ error: "Trip not found" });
+    const authorization = await authorizeTrip(tripId, req.user.id, "view");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
     }
 
     const result = await pool.query<ExpenseRow>(
@@ -1409,8 +1546,9 @@ router.post(
     }
 
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
-        return res.status(404).json({ error: "Trip not found" });
+      const authorization = await authorizeTrip(tripId, req.user.id, "contribute");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
       }
 
       const result = await pool.query<ExpenseRow>(
@@ -1436,6 +1574,48 @@ router.post(
   }
 );
 
+router.delete(
+  "/:tripId/expenses/:expenseId",
+  async (
+    req: Request<{ tripId: string; expenseId: string }>,
+    res: Response
+  ) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.tripId);
+    const expenseId = Number(req.params.expenseId);
+
+    if (!Number.isInteger(tripId) || !Number.isInteger(expenseId)) {
+      return res.status(400).json({ error: "Invalid trip or expense id" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      const result = await pool.query(
+        `DELETE FROM expenses
+         WHERE id = $1 AND trip_id = $2
+         RETURNING id`,
+        [expenseId, tripId]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Expense not found" });
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to delete expense:", error);
+      return res.status(500).json({ error: "Failed to delete expense" });
+    }
+  }
+);
+
 router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -1448,8 +1628,9 @@ router.get("/:tripId/itinerary", async (req: Request, res: Response) => {
   }
 
   try {
-    if (!(await userCanAccessTrip(tripId, req.user.id))) {
-      return res.status(404).json({ error: "Trip not found" });
+    const authorization = await authorizeTrip(tripId, req.user.id, "view");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
     }
 
     const result = await pool.query<ItineraryItemRow>(
@@ -1500,8 +1681,9 @@ router.post(
     }
 
     try {
-      if (!(await userOwnsTrip(tripId, req.user.id))) {
-        return res.status(404).json({ error: "Trip not found" });
+      const authorization = await authorizeTrip(tripId, req.user.id, "contribute");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
       }
 
       if (scheduledDate !== undefined) {
@@ -1542,6 +1724,48 @@ router.post(
 
       console.error("[TRIPS] Failed to create itinerary item:", error);
       return res.status(500).json({ error: "Failed to create itinerary item" });
+    }
+  }
+);
+
+router.delete(
+  "/:tripId/itinerary/:itemId",
+  async (
+    req: Request<{ tripId: string; itemId: string }>,
+    res: Response
+  ) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.tripId);
+    const itemId = Number(req.params.itemId);
+
+    if (!Number.isInteger(tripId) || !Number.isInteger(itemId)) {
+      return res.status(400).json({ error: "Invalid trip or itinerary item id" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      const result = await pool.query(
+        `DELETE FROM itinerary_items
+         WHERE id = $1 AND trip_id = $2
+         RETURNING id`,
+        [itemId, tripId]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "Itinerary item not found" });
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("[TRIPS] Failed to delete itinerary item:", error);
+      return res.status(500).json({ error: "Failed to delete itinerary item" });
     }
   }
 );
@@ -1591,7 +1815,7 @@ router.post("/", async (req: Request<{}, {}, CreateTripBody>, res: Response) => 
         VALUES ($1, $2, $3)
         ON CONFLICT (trip_id, user_id) DO NOTHING
       `,
-      [result.rows[0].id, req.user.id, "owner"]
+      [result.rows[0].id, req.user.id, "admin"]
     );
 
     return res.status(201).json(mapTrip(result.rows[0]));

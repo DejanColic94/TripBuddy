@@ -13,6 +13,9 @@ const participantUserId = 987655;
 const nonOwnerUserId = 987656;
 const invitedCreatedUserId = 987657;
 const raceRecoveredUserId = 987661;
+const guestUserId = 987662;
+const adminUserId = 987663;
+const roleChangeUserId = 987664;
 const ownerEmail = "owner@example.com";
 const participantEmail = "participant@example.com";
 const invitedEmail = "invited@example.com";
@@ -21,6 +24,9 @@ const userNames = new Map([
   [participantUserId, "Shared Traveler"],
   [nonOwnerUserId, "Invited Traveler"],
   [invitedCreatedUserId, "Created Invitee"],
+  [guestUserId, "Guest Traveler"],
+  [adminUserId, "Admin Traveler"],
+  [roleChangeUserId, "Role Change Traveler"],
 ]);
 const identityUsersByEmail = new Map([
   [
@@ -219,6 +225,14 @@ describe("trip-service endpoints", () => {
     { id: participantUserId, name: "Shared Traveler", email: participantEmail },
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
   );
+  const guestToken = jwt.sign(
+    { id: guestUserId, name: "Guest Traveler", email: "guest@example.com" },
+    process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
+  );
+  const adminToken = jwt.sign(
+    { id: adminUserId, name: "Admin Traveler", email: "admin@example.com" },
+    process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
+  );
   const tokenWithoutEmail = jwt.sign(
     { id: nonOwnerUserId, name: "Invited Traveler" },
     process.env.TRIP_JWT_SECRET ?? "test_identity_secret"
@@ -349,7 +363,7 @@ describe("trip-service endpoints", () => {
     expect(deleteResponse.status).toBe(204);
   });
 
-  it("adds the trip creator as owner participant", async () => {
+  it("adds the trip creator as an admin participant", async () => {
     const response = await request(app)
       .get(`/trips/${tripId}/participants`)
       .set("Authorization", `Bearer ${token}`);
@@ -361,7 +375,7 @@ describe("trip-service endpoints", () => {
           tripId,
           userId,
           name: "Owner Traveler",
-          role: "owner",
+          role: "admin",
         }),
       ])
     );
@@ -382,7 +396,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         userId: participantUserId,
-        role: "viewer",
+        role: "user",
       });
 
     expect(response.status).toBe(201);
@@ -391,9 +405,97 @@ describe("trip-service endpoints", () => {
         tripId,
         userId: participantUserId,
         name: "Shared Traveler",
-        role: "viewer",
+        role: "user",
       })
     );
+  });
+
+  it("allows an admin to add a read-only guest", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ userId: guestUserId, role: "guest" });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        tripId,
+        userId: guestUserId,
+        name: "Guest Traveler",
+        role: "guest",
+      })
+    );
+  });
+
+  it("allows an admin to grant another participant admin access", async () => {
+    const addResponse = await request(app)
+      .post(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ userId: adminUserId, role: "admin" });
+
+    expect(addResponse.status).toBe(201);
+    expect(addResponse.body.role).toBe("admin");
+
+    const updateResponse = await request(app)
+      .put(`/trips/${tripId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send(validTripPayload);
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateResponse.body.name).toBe(validTripPayload.name);
+  });
+
+  it("allows an admin to change a participant role", async () => {
+    const addResponse = await request(app)
+      .post(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ userId: roleChangeUserId, role: "user" });
+
+    expect(addResponse.status).toBe(201);
+
+    const updateResponse = await request(app)
+      .patch(`/trips/${tripId}/participants/${roleChangeUserId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ role: "guest" });
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateResponse.body).toEqual(
+      expect.objectContaining({
+        userId: roleChangeUserId,
+        name: "Role Change Traveler",
+        role: "guest",
+      })
+    );
+  });
+
+  it("rejects invalid participant role changes", async () => {
+    const response = await request(app)
+      .patch(`/trips/${tripId}/participants/${roleChangeUserId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ role: "viewer" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("role must be admin, user, or guest");
+  });
+
+  it("prevents a user participant from changing roles", async () => {
+    const response = await request(app)
+      .patch(`/trips/${tripId}/participants/${roleChangeUserId}`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({ role: "admin" });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Forbidden");
+  });
+
+  it("does not allow the trip creator role to be changed", async () => {
+    const response = await request(app)
+      .patch(`/trips/${tripId}/participants/${userId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ role: "guest" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Trip creator role cannot be changed");
   });
 
   it("allows a participant to list participants", async () => {
@@ -407,7 +509,7 @@ describe("trip-service endpoints", () => {
         expect.objectContaining({
           userId: participantUserId,
           name: "Shared Traveler",
-          role: "viewer",
+          role: "user",
         }),
       ])
     );
@@ -428,11 +530,11 @@ describe("trip-service endpoints", () => {
           end_date: expect.any(String),
           created_by: userId,
           participants: expect.arrayContaining([
-            expect.objectContaining({ userId, name: "Owner Traveler", role: "owner" }),
+            expect.objectContaining({ userId, name: "Owner Traveler", role: "admin" }),
             expect.objectContaining({
               userId: participantUserId,
               name: "Shared Traveler",
-              role: "viewer",
+              role: "user",
             }),
           ]),
         }),
@@ -451,11 +553,11 @@ describe("trip-service endpoints", () => {
         expect.objectContaining({
           id: tripId,
           participants: expect.arrayContaining([
-            expect.objectContaining({ userId, name: "Owner Traveler", role: "owner" }),
+            expect.objectContaining({ userId, name: "Owner Traveler", role: "admin" }),
             expect.objectContaining({
               userId: participantUserId,
               name: "Shared Traveler",
-              role: "viewer",
+              role: "user",
             }),
           ]),
         }),
@@ -486,7 +588,7 @@ describe("trip-service endpoints", () => {
           expect.objectContaining({
             userId: participantUserId,
             name: "Shared Traveler",
-            role: "viewer",
+            role: "user",
           }),
         ]),
       })
@@ -499,11 +601,21 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         userId: participantUserId,
-        role: "viewer",
+        role: "user",
       });
 
     expect(response.status).toBe(409);
     expect(response.body.error).toBe("Participant already exists");
+  });
+
+  it("rejects obsolete participant roles", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ userId: 987659, role: "viewer" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("role must be admin, user, or guest");
   });
 
   it("does not allow a non-owner to add participants", async () => {
@@ -512,7 +624,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${nonOwnerToken}`)
       .send({
         userId: 987657,
-        role: "viewer",
+        role: "user",
       });
 
     expect(response.status).toBe(404);
@@ -543,8 +655,9 @@ describe("trip-service endpoints", () => {
       .delete(`/trips/${tripId}`)
       .set("Authorization", `Bearer ${nonOwnerToken}`);
 
-    expect(updateResponse.status).toBe(403);
+    expect(updateResponse.status).toBe(404);
     expect(deleteResponse.status).toBe(403);
+    expect(deleteResponse.body.error).toBe("Forbidden");
   });
 
   it("rejects an invalid trip update payload", async () => {
@@ -571,7 +684,7 @@ describe("trip-service endpoints", () => {
     const getResponse = await request(app).get(`/trips/${tripId}/participants`);
     const postResponse = await request(app)
       .post(`/trips/${tripId}/participants`)
-      .send({ userId: 987658, role: "viewer" });
+      .send({ userId: 987658, role: "user" });
 
     expect(getResponse.status).toBe(401);
     expect(postResponse.status).toBe(401);
@@ -583,7 +696,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "invited@example.com",
-        role: "viewer",
+        role: "user",
       });
 
     expect(response.status).toBe(201);
@@ -591,7 +704,7 @@ describe("trip-service endpoints", () => {
       expect.objectContaining({
         tripId,
         email: "invited@example.com",
-        role: "viewer",
+        role: "user",
         acceptedAt: null,
       })
     );
@@ -618,7 +731,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "rollback@example.com",
-        role: "viewer",
+        role: "user",
       });
 
     const afterCount = await pool.query(
@@ -644,7 +757,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "",
-        role: "viewer",
+        role: "user",
       });
 
     expect(response.status).toBe(400);
@@ -658,7 +771,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${nonOwnerToken}`)
       .send({
         email: "blocked@example.com",
-        role: "viewer",
+        role: "user",
       });
 
     expect(response.status).toBe(404);
@@ -678,7 +791,7 @@ describe("trip-service endpoints", () => {
           tripId,
           email: "invited@example.com",
           token: inviteToken,
-          role: "viewer",
+          role: "user",
         }),
       ])
     );
@@ -692,7 +805,7 @@ describe("trip-service endpoints", () => {
       expect.objectContaining({
         tripId,
         email: invitedEmail,
-        role: "viewer",
+        role: "user",
         accountExists: true,
       })
     );
@@ -705,7 +818,7 @@ describe("trip-service endpoints", () => {
     const inviteResponse = await request(app)
       .post(`/trips/${tripId}/invites`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ email: "expired-invite@example.com", role: "viewer" });
+      .send({ email: "expired-invite@example.com", role: "user" });
     const expiredToken = inviteResponse.body.token;
 
     await pool.query(
@@ -730,7 +843,7 @@ describe("trip-service endpoints", () => {
     const inviteResponse = await request(app)
       .post(`/trips/${tripId}/invites`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ email: "guest-access@example.com", role: "viewer" });
+      .send({ email: "guest-access@example.com", role: "user" });
     const guestResponse = await request(app)
       .post(`/trips/invites/${inviteResponse.body.token}/guest`)
       .send({ displayName: "Guest Traveler" });
@@ -830,7 +943,7 @@ describe("trip-service endpoints", () => {
         expect.objectContaining({
           tripId,
           userId: nonOwnerUserId,
-          role: "viewer",
+          role: "user",
         }),
       ])
     );
@@ -842,7 +955,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "casey@example.com",
-        role: "viewer",
+        role: "user",
       });
     const caseToken = jwt.sign(
       { id: 987660, name: "Case Traveler", email: "  CASEY@EXAMPLE.COM  " },
@@ -863,7 +976,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "New-Invitee@Example.com",
-        role: "viewer",
+        role: "user",
       });
 
     const response = await request(app)
@@ -889,7 +1002,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: raceRecoveredEmail,
-        role: "viewer",
+        role: "user",
       });
 
     const response = await request(app)
@@ -919,7 +1032,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "identity-lookup-fail@example.com",
-        role: "viewer",
+        role: "user",
       });
     failIdentityLookup = true;
 
@@ -942,7 +1055,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "create-failure@example.com",
-        role: "viewer",
+        role: "user",
       });
     failIdentityCreate = true;
 
@@ -1003,7 +1116,7 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         email: "participant@example.com",
-        role: "viewer",
+        role: "user",
       });
 
     expect(inviteResponse.status).toBe(201);
@@ -1028,7 +1141,7 @@ describe("trip-service endpoints", () => {
     );
   });
 
-  it("does not allow a participant to create itinerary items", async () => {
+  it("allows a user participant to create itinerary items", async () => {
     const response = await request(app)
       .post(`/trips/${tripId}/itinerary`)
       .set("Authorization", `Bearer ${participantToken}`)
@@ -1037,8 +1150,22 @@ describe("trip-service endpoints", () => {
         scheduledDate: "2026-06-02",
       });
 
-    expect(response.status).toBe(404);
-    expect(response.body.error).toBe("Trip not found");
+    expect(response.status).toBe(201);
+    expect(response.body.title).toBe("Participant plan");
+  });
+
+  it("allows a guest to read itinerary but not create items", async () => {
+    const readResponse = await request(app)
+      .get(`/trips/${tripId}/itinerary`)
+      .set("Authorization", `Bearer ${guestToken}`);
+    const createResponse = await request(app)
+      .post(`/trips/${tripId}/itinerary`)
+      .set("Authorization", `Bearer ${guestToken}`)
+      .send({ title: "Blocked guest plan", scheduledDate: "2026-06-02" });
+
+    expect(readResponse.status).toBe(200);
+    expect(createResponse.status).toBe(403);
+    expect(createResponse.body.error).toBe("Forbidden");
   });
 
   it("creates an itinerary item", async () => {
@@ -1110,10 +1237,11 @@ describe("trip-service endpoints", () => {
       .set("Authorization", `Bearer ${participantToken}`);
 
     expect(updateResponse.status).toBe(404);
-    expect(deleteResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(403);
+    expect(deleteResponse.body.error).toBe("Forbidden");
   });
 
-  it("does not allow a participant to create expenses", async () => {
+  it("allows a user participant to create expenses", async () => {
     const response = await request(app)
       .post(`/trips/${tripId}/expenses`)
       .set("Authorization", `Bearer ${participantToken}`)
@@ -1123,8 +1251,22 @@ describe("trip-service endpoints", () => {
         currency: "EUR",
       });
 
-    expect(response.status).toBe(404);
-    expect(response.body.error).toBe("Trip not found");
+    expect(response.status).toBe(201);
+    expect(response.body.title).toBe("Participant hotel");
+  });
+
+  it("allows a guest to read expenses but not create them", async () => {
+    const readResponse = await request(app)
+      .get(`/trips/${tripId}/expenses`)
+      .set("Authorization", `Bearer ${guestToken}`);
+    const createResponse = await request(app)
+      .post(`/trips/${tripId}/expenses`)
+      .set("Authorization", `Bearer ${guestToken}`)
+      .send({ title: "Blocked guest expense", amount: 10, currency: "EUR" });
+
+    expect(readResponse.status).toBe(200);
+    expect(createResponse.status).toBe(403);
+    expect(createResponse.body.error).toBe("Forbidden");
   });
 
   it("creates an expense", async () => {
@@ -1197,9 +1339,9 @@ describe("trip-service endpoints", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(
       expect.objectContaining({
-        itineraryCount: 1,
-        expenseCount: 1,
-        totalExpenses: 250,
+        itineraryCount: 2,
+        expenseCount: 2,
+        totalExpenses: 350,
         tripDurationDays: 4,
       })
     );
@@ -1213,12 +1355,81 @@ describe("trip-service endpoints", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(
       expect.objectContaining({
-        itineraryCount: 1,
-        expenseCount: 1,
-        totalExpenses: 250,
+        itineraryCount: 2,
+        expenseCount: 2,
+        totalExpenses: 350,
         tripDurationDays: 4,
       })
     );
+  });
+
+  it("prevents a user participant from removing another participant", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}/participants/${guestUserId}`)
+      .set("Authorization", `Bearer ${participantToken}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Forbidden");
+  });
+
+  it("does not allow an admin to remove the trip creator", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}/participants/${userId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Trip creator cannot be removed");
+  });
+
+  it("allows an admin to remove a participant", async () => {
+    const response = await request(app)
+      .delete(`/trips/${tripId}/participants/${guestUserId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const participantResult = await pool.query(
+      "SELECT id FROM trip_participants WHERE trip_id = $1 AND user_id = $2",
+      [tripId, guestUserId]
+    );
+
+    expect(response.status).toBe(204);
+    expect(participantResult.rowCount).toBe(0);
+  });
+
+  it("allows an admin to delete an itinerary item", async () => {
+    const itemResult = await pool.query<{ id: number }>(
+      "SELECT id FROM itinerary_items WHERE trip_id = $1 AND title = $2",
+      [tripId, "Museum"]
+    );
+    const itemId = itemResult.rows[0].id;
+
+    const response = await request(app)
+      .delete(`/trips/${tripId}/itinerary/${itemId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const deletedResult = await pool.query(
+      "SELECT id FROM itinerary_items WHERE id = $1",
+      [itemId]
+    );
+
+    expect(response.status).toBe(204);
+    expect(deletedResult.rowCount).toBe(0);
+  });
+
+  it("allows an admin to delete an expense", async () => {
+    const expenseResult = await pool.query<{ id: number }>(
+      "SELECT id FROM expenses WHERE trip_id = $1 AND title = $2",
+      [tripId, "Hotel"]
+    );
+    const expenseId = expenseResult.rows[0].id;
+
+    const response = await request(app)
+      .delete(`/trips/${tripId}/expenses/${expenseId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const deletedResult = await pool.query(
+      "SELECT id FROM expenses WHERE id = $1",
+      [expenseId]
+    );
+
+    expect(response.status).toBe(204);
+    expect(deletedResult.rowCount).toBe(0);
   });
 
   it("allows the owner to update a trip", async () => {

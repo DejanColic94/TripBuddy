@@ -64,7 +64,8 @@ export async function initDb(): Promise<void> {
         id SERIAL PRIMARY KEY,
         trip_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+        role VARCHAR(50) NOT NULL DEFAULT 'user'
+          CHECK (role IN ('admin', 'user', 'guest')),
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -92,7 +93,8 @@ export async function initDb(): Promise<void> {
         trip_id INTEGER NOT NULL,
         email VARCHAR(255) NOT NULL,
         token VARCHAR(255) UNIQUE NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+        role VARCHAR(50) NOT NULL DEFAULT 'user'
+          CHECK (role IN ('admin', 'user', 'guest')),
         accepted_at TIMESTAMP NULL,
         expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

@@ -60,7 +60,7 @@ const swaggerSpec = swaggerJsdoc({
           properties: {
             userId: { type: "number", example: 2 },
             name: { type: "string", example: "Ana Petrovic" },
-            role: { type: "string", example: "viewer" },
+            role: { type: "string", enum: ["admin", "user", "guest"], example: "user" },
           },
         },
         CreateTripRequest: {
@@ -131,7 +131,7 @@ const swaggerSpec = swaggerJsdoc({
             tripId: { type: "number", example: 1 },
             userId: { type: "number", example: 2 },
             name: { type: "string", example: "Ana Petrovic" },
-            role: { type: "string", example: "viewer" },
+            role: { type: "string", enum: ["admin", "user", "guest"], example: "user" },
             createdAt: { type: "string", example: "2026-06-18T10:00:00.000Z" },
           },
         },
@@ -140,7 +140,7 @@ const swaggerSpec = swaggerJsdoc({
           required: ["userId"],
           properties: {
             userId: { type: "number", example: 2 },
-            role: { type: "string", enum: ["viewer"], example: "viewer" },
+            role: { type: "string", enum: ["admin", "user", "guest"], example: "user" },
           },
         },
         TripInvite: {
@@ -150,7 +150,7 @@ const swaggerSpec = swaggerJsdoc({
             tripId: { type: "number", example: 1 },
             email: { type: "string", example: "user@example.com" },
             token: { type: "string", example: "a-secure-random-token" },
-            role: { type: "string", example: "viewer" },
+            role: { type: "string", enum: ["admin", "user", "guest"], example: "user" },
             acceptedAt: {
               type: "string",
               nullable: true,
@@ -164,7 +164,7 @@ const swaggerSpec = swaggerJsdoc({
           required: ["email"],
           properties: {
             email: { type: "string", example: "user@example.com" },
-            role: { type: "string", enum: ["viewer"], example: "viewer" },
+            role: { type: "string", enum: ["admin", "user", "guest"], example: "user" },
           },
         },
         ItineraryItem: {
@@ -250,7 +250,7 @@ const swaggerSpec = swaggerJsdoc({
         },
         post: {
           summary: "Create a trip",
-          description: "Creates a trip and automatically adds the creator as an owner participant.",
+          description: "Creates a trip and automatically adds the creator as an admin participant.",
           tags: ["Trips"],
           requestBody: {
             required: true,
@@ -319,7 +319,7 @@ const swaggerSpec = swaggerJsdoc({
             },
             "400": { description: "Invalid request" },
             "401": { description: "Unauthorized" },
-            "403": { description: "Authenticated user is not the trip owner" },
+            "403": { description: "Authenticated user is not a trip admin" },
             "404": { description: "Trip not found" },
             "409": { description: "The owner already has a trip with this name" },
           },
@@ -333,7 +333,7 @@ const swaggerSpec = swaggerJsdoc({
             "204": { description: "Trip deleted" },
             "400": { description: "Invalid trip id" },
             "401": { description: "Unauthorized" },
-            "403": { description: "Authenticated user is not the trip owner" },
+            "403": { description: "Authenticated user is not a trip admin" },
             "404": { description: "Trip not found" },
           },
         },

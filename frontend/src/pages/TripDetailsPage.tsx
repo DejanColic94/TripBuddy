@@ -9,12 +9,17 @@ import { API_BASE_URL } from "../config/api";
 import WeatherForecast from "../components/WeatherForecast";
 import { useExpenseConversion } from "../hooks/useExpenseConversion";
 import type { LocationSearchResult } from "../types/location";
-import { formatTripDate, type Trip, type TripParticipantSummary } from "../types/trip";
+import {
+  formatTripDate,
+  type Trip,
+  type TripParticipantSummary,
+  type TripRole,
+} from "../types/trip";
 
 type TripDetailsPageProps = {
   token: string;
   trip: Trip;
-  canManage: boolean;
+  tripRole: TripRole;
   onBack: () => void;
   onTripUpdated: (trip: Trip) => void;
   onTripDeleted: () => void;
@@ -111,19 +116,21 @@ function locationFromTrip(trip: Trip): LocationSearchResult | null {
 function TripDetailsPage({
   token,
   trip,
-  canManage,
+  tripRole,
   onBack,
   onTripUpdated,
   onTripDeleted,
   onUnauthorized,
 }: TripDetailsPageProps) {
+  const canManage = tripRole === "admin";
+  const canContribute = canManage || tripRole === "user";
   const [summary, setSummary] = useState<TripSummary | null>(null);
   const [currentTrip, setCurrentTrip] = useState(trip);
   const [participants, setParticipants] = useState<TripParticipant[]>(trip.participants ?? []);
   const [invites, setInvites] = useState<TripInvite[]>([]);
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
   const [participantUserId, setParticipantUserId] = useState("");
-  const [participantRole, setParticipantRole] = useState("viewer");
+  const [participantRole, setParticipantRole] = useState<TripRole>("user");
   const [isEditingTrip, setIsEditingTrip] = useState(false);
   const [editName, setEditName] = useState(trip.name);
   const [editDescription, setEditDescription] = useState(trip.description ?? "");
@@ -133,7 +140,7 @@ function TripDetailsPage({
   const [editStartDate, setEditStartDate] = useState(trip.startDate?.slice(0, 10) ?? "");
   const [editEndDate, setEditEndDate] = useState(trip.endDate?.slice(0, 10) ?? "");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviteRole, setInviteRole] = useState<TripRole>("user");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
@@ -146,14 +153,18 @@ function TripDetailsPage({
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
+  const [deletingParticipantUserId, setDeletingParticipantUserId] = useState<number | null>(null);
+  const [updatingParticipantUserId, setUpdatingParticipantUserId] = useState<number | null>(null);
   const [isTripSaving, setIsTripSaving] = useState(false);
   const [isTripDeleting, setIsTripDeleting] = useState(false);
   const [isInvitesLoading, setIsInvitesLoading] = useState(true);
   const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingItineraryItemId, setDeletingItineraryItemId] = useState<number | null>(null);
   const [isExpensesLoading, setIsExpensesLoading] = useState(true);
   const [isExpenseSubmitting, setIsExpenseSubmitting] = useState(false);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [participantError, setParticipantError] = useState("");
   const [tripManagementError, setTripManagementError] = useState("");
@@ -294,8 +305,8 @@ function TripDetailsPage({
 
       if (!response.ok || !Array.isArray(data)) {
         setInviteError(
-          response.status === 404
-            ? "Only the trip owner can manage invites"
+          response.status === 403
+            ? "Only trip admins can manage invites"
             : ("error" in data && data.error) || "Failed to load invites"
         );
         return;
@@ -383,10 +394,16 @@ function TripDetailsPage({
     void loadTripDetails();
     void loadSummary();
     void loadParticipants();
-    void loadInvites();
+    if (canManage) {
+      void loadInvites();
+    } else {
+      setInvites([]);
+      setIsInvitesLoading(false);
+    }
     void loadItineraryItems();
     void loadExpenses();
   }, [
+    canManage,
     loadExpenses,
     loadInvites,
     loadItineraryItems,
@@ -529,8 +546,8 @@ function TripDetailsPage({
       if (!response.ok || !("id" in data)) {
         if (response.status === 409) {
           setParticipantError("Participant already exists");
-        } else if (response.status === 404) {
-          setParticipantError("Only the trip owner can add participants");
+        } else if (response.status === 403) {
+          setParticipantError("Only trip admins can add participants");
         } else {
           setParticipantError(("error" in data && data.error) || "Failed to add participant");
         }
@@ -538,7 +555,7 @@ function TripDetailsPage({
       }
 
       setParticipantUserId("");
-      setParticipantRole("viewer");
+      setParticipantRole("user");
       setParticipantSuccessMessage("Participant added");
       await loadParticipants();
     } catch {
@@ -568,15 +585,15 @@ function TripDetailsPage({
 
       if (!response.ok || !("id" in data)) {
         setInviteError(
-          response.status === 404
-            ? "Only the trip owner can create invites"
+          response.status === 403
+            ? "Only trip admins can create invites"
             : ("error" in data && data.error) || "Failed to create invite"
         );
         return;
       }
 
       setInviteEmail("");
-      setInviteRole("viewer");
+      setInviteRole("user");
       setInviteSuccessMessage("Invite created");
       await loadInvites();
     } catch {
@@ -693,13 +710,199 @@ function TripDetailsPage({
     }
   };
 
+  const deleteTripResource = async (
+    resourcePath: string,
+    fallbackError: string,
+    setResourceError: (message: string) => void
+  ) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/trips/${trip.id}/${resourcePath}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return false;
+      }
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        setResourceError(data?.error || fallbackError);
+        return false;
+      }
+
+      return true;
+    } catch {
+      setResourceError(fallbackError);
+      return false;
+    }
+  };
+
+  const handleParticipantDelete = async (participant: TripParticipant) => {
+    const participantName = participant.name || `User #${participant.userId}`;
+    if (!window.confirm(`Remove ${participantName} from this trip?`)) {
+      return;
+    }
+
+    setParticipantError("");
+    setParticipantSuccessMessage("");
+    setDeletingParticipantUserId(participant.userId);
+
+    const deleted = await deleteTripResource(
+      `participants/${participant.userId}`,
+      "Failed to remove participant",
+      setParticipantError
+    );
+
+    if (deleted) {
+      const updatedParticipants = participants.filter(
+        (currentParticipant) => currentParticipant.userId !== participant.userId
+      );
+      const updatedTrip = { ...currentTrip, participants: updatedParticipants };
+      setParticipants(updatedParticipants);
+      setCurrentTrip(updatedTrip);
+      onTripUpdated(updatedTrip);
+      setParticipantSuccessMessage("Participant removed");
+    }
+
+    setDeletingParticipantUserId(null);
+  };
+
+  const handleParticipantRoleChange = async (
+    participant: TripParticipant,
+    role: TripRole
+  ) => {
+    setParticipantError("");
+    setParticipantSuccessMessage("");
+    setUpdatingParticipantUserId(participant.userId);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/trips/${trip.id}/participants/${participant.userId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role }),
+        }
+      );
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json().catch(() => null)) as
+        | TripParticipant
+        | { error?: string }
+        | null;
+
+      if (!response.ok || !data || !("userId" in data)) {
+        setParticipantError(
+          (data && "error" in data && data.error) || "Failed to update participant role"
+        );
+        return;
+      }
+
+      const updatedParticipants = participants.map((currentParticipant) =>
+        currentParticipant.userId === participant.userId
+          ? { ...currentParticipant, ...data }
+          : currentParticipant
+      );
+      const updatedTrip = { ...currentTrip, participants: updatedParticipants };
+      setParticipants(updatedParticipants);
+      setCurrentTrip(updatedTrip);
+      onTripUpdated(updatedTrip);
+      setParticipantSuccessMessage("Participant role updated");
+    } catch {
+      setParticipantError("Failed to update participant role");
+    } finally {
+      setUpdatingParticipantUserId(null);
+    }
+  };
+
+  const handleItineraryDelete = async (item: ItineraryItem) => {
+    if (!window.confirm(`Delete itinerary item “${item.title}”?`)) {
+      return;
+    }
+
+    setError("");
+    setSuccessMessage("");
+    setDeletingItineraryItemId(item.id);
+
+    const deleted = await deleteTripResource(
+      `itinerary/${item.id}`,
+      "Failed to delete itinerary item",
+      setError
+    );
+
+    if (deleted) {
+      setItineraryItems((currentItems) =>
+        currentItems.filter((currentItem) => currentItem.id !== item.id)
+      );
+      setSummary((currentSummary) =>
+        currentSummary
+          ? {
+              ...currentSummary,
+              itineraryCount: Math.max(0, currentSummary.itineraryCount - 1),
+            }
+          : currentSummary
+      );
+      setSuccessMessage("Itinerary item deleted");
+    }
+
+    setDeletingItineraryItemId(null);
+  };
+
+  const handleExpenseDelete = async (expense: Expense) => {
+    if (!window.confirm(`Delete expense “${expense.title}”?`)) {
+      return;
+    }
+
+    setExpenseError("");
+    setExpenseSuccessMessage("");
+    setDeletingExpenseId(expense.id);
+
+    const deleted = await deleteTripResource(
+      `expenses/${expense.id}`,
+      "Failed to delete expense",
+      setExpenseError
+    );
+
+    if (deleted) {
+      setExpenses((currentExpenses) =>
+        currentExpenses.filter((currentExpense) => currentExpense.id !== expense.id)
+      );
+      setSummary((currentSummary) =>
+        currentSummary
+          ? {
+              ...currentSummary,
+              expenseCount: Math.max(0, currentSummary.expenseCount - 1),
+              totalExpenses: Math.max(0, currentSummary.totalExpenses - expense.amount),
+            }
+          : currentSummary
+      );
+      setExpenseSuccessMessage("Expense deleted");
+    }
+
+    setDeletingExpenseId(null);
+  };
+
   return (
     <section className="page trip-details-page">
       <div className="details-hero">
         <div>
           <p className="eyebrow">Trip details</p>
           <h1>{currentTrip.name}</h1>
-          <p>{currentTrip.description || "No description added yet."}</p>
+          <p className="trip-description">
+            {currentTrip.description || "No description added yet."}
+          </p>
+          <span className={`trip-role-badge trip-role-${tripRole}`}>
+            {tripRole} access
+          </span>
         </div>
         <div className="details-actions">
           {canManage ? (
@@ -864,8 +1067,9 @@ function TripDetailsPage({
         ) : null}
       </section>
 
-      <div className="participants-layout">
-        <section className="panel participant-form-card">
+      <div className={`participants-layout${canManage ? "" : " read-only-content-layout"}`}>
+        {canManage ? (
+          <section className="panel participant-form-card">
           <h2>Add participant</h2>
 
           <form className="form-stack" onSubmit={handleParticipantSubmit}>
@@ -884,9 +1088,11 @@ function TripDetailsPage({
               Participant role
               <select
                 value={participantRole}
-                onChange={(event) => setParticipantRole(event.target.value)}
+                onChange={(event) => setParticipantRole(event.target.value as TripRole)}
               >
-                <option value="viewer">viewer</option>
+                <option value="admin">Admin — full control</option>
+                <option value="user">User — add plans and expenses</option>
+                <option value="guest">Guest — view only</option>
               </select>
             </label>
 
@@ -896,7 +1102,8 @@ function TripDetailsPage({
           </form>
 
           {participantSuccessMessage ? <p className="success">{participantSuccessMessage}</p> : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className="participants-section">
           <div className="section-heading">
@@ -922,7 +1129,38 @@ function TripDetailsPage({
                     <strong>{participant.name || `User #${participant.userId}`}</strong>
                     <p>Trip participant</p>
                   </div>
-                  <span>{participant.role}</span>
+                  <div className="item-card-actions">
+                    {canManage && participant.userId !== currentTrip.createdBy ? (
+                      <select
+                        className="participant-role-select"
+                        aria-label={`Role for ${participant.name || `User ${participant.userId}`}`}
+                        value={participant.role}
+                        onChange={(event) =>
+                          void handleParticipantRoleChange(
+                            participant,
+                            event.target.value as TripRole
+                          )
+                        }
+                        disabled={updatingParticipantUserId === participant.userId}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="user">User</option>
+                        <option value="guest">Guest</option>
+                      </select>
+                    ) : (
+                      <span>{participant.role}</span>
+                    )}
+                    {canManage && participant.userId !== currentTrip.createdBy ? (
+                      <button
+                        className="compact-danger-button"
+                        type="button"
+                        onClick={() => void handleParticipantDelete(participant)}
+                        disabled={deletingParticipantUserId === participant.userId}
+                      >
+                        {deletingParticipantUserId === participant.userId ? "Removing..." : "Remove"}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -930,7 +1168,8 @@ function TripDetailsPage({
         </section>
       </div>
 
-      <div className="invites-layout">
+      {canManage ? (
+        <div className="invites-layout">
         <section className="panel invite-form-card">
           <h2>Create invite</h2>
 
@@ -947,8 +1186,13 @@ function TripDetailsPage({
 
             <label>
               Invite role
-              <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value)}>
-                <option value="viewer">viewer</option>
+              <select
+                value={inviteRole}
+                onChange={(event) => setInviteRole(event.target.value as TripRole)}
+              >
+                <option value="admin">Admin — full control</option>
+                <option value="user">User — add plans and expenses</option>
+                <option value="guest">Guest — view only</option>
               </select>
             </label>
 
@@ -994,10 +1238,12 @@ function TripDetailsPage({
             </ul>
           ) : null}
         </section>
-      </div>
+        </div>
+      ) : null}
 
-      <div className="itinerary-layout">
-        <section className="panel itinerary-form-card">
+      <div className={`itinerary-layout${canContribute ? "" : " read-only-content-layout"}`}>
+        {canContribute ? (
+          <section className="panel itinerary-form-card">
           <h2>Add itinerary item</h2>
 
           <form className="form-stack" onSubmit={handleItinerarySubmit}>
@@ -1036,7 +1282,8 @@ function TripDetailsPage({
           </form>
 
           {successMessage ? <p className="success">{successMessage}</p> : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className="itinerary-section">
           <div className="section-heading">
@@ -1062,7 +1309,19 @@ function TripDetailsPage({
                     {formatTripDate(item.scheduledDate)}
                   </div>
                   <div className="itinerary-card">
-                    <strong>{item.title}</strong>
+                    <div className="itinerary-card-header">
+                      <strong>{item.title}</strong>
+                      {canManage ? (
+                        <button
+                          className="compact-danger-button"
+                          type="button"
+                          onClick={() => void handleItineraryDelete(item)}
+                          disabled={deletingItineraryItemId === item.id}
+                        >
+                          {deletingItineraryItemId === item.id ? "Deleting..." : "Delete"}
+                        </button>
+                      ) : null}
+                    </div>
                     <p>{item.description || "No description"}</p>
                   </div>
                 </li>
@@ -1072,8 +1331,9 @@ function TripDetailsPage({
         </section>
       </div>
 
-      <div className="expenses-layout">
-        <section className="panel expense-form-card">
+      <div className={`expenses-layout${canContribute ? "" : " read-only-content-layout"}`}>
+        {canContribute ? (
+          <section className="panel expense-form-card">
           <h2>Add expense</h2>
 
           <form className="form-stack" onSubmit={handleExpenseSubmit}>
@@ -1128,7 +1388,8 @@ function TripDetailsPage({
           </form>
 
           {expenseSuccessMessage ? <p className="success">{expenseSuccessMessage}</p> : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className="expenses-section">
           <div className="expense-total-card">
@@ -1204,7 +1465,19 @@ function TripDetailsPage({
                     <strong>{expense.title}</strong>
                     <p>{expense.category || "Uncategorized"}</p>
                   </div>
-                  <span>{formatExpenseAmount(expense.amount, expense.currency)}</span>
+                  <div className="item-card-actions">
+                    <span>{formatExpenseAmount(expense.amount, expense.currency)}</span>
+                    {canManage ? (
+                      <button
+                        className="compact-danger-button"
+                        type="button"
+                        onClick={() => void handleExpenseDelete(expense)}
+                        disabled={deletingExpenseId === expense.id}
+                      >
+                        {deletingExpenseId === expense.id ? "Deleting..." : "Delete"}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
