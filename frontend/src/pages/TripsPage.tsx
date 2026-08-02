@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import LocationAutocomplete from "../components/LocationAutocomplete";
 import { API_BASE_URL } from "../config/api";
 import type { AuthUser } from "../types/auth";
+import type { LocationSearchResult } from "../types/location";
 import { formatTripDate, type Trip } from "../types/trip";
 
 type TripsPageProps = {
@@ -23,7 +25,9 @@ function TripsPage({
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [destination, setDestination] = useState("");
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [selectedDestination, setSelectedDestination] =
+    useState<LocationSearchResult | null>(null);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [error, setError] = useState("");
@@ -69,6 +73,20 @@ function TripsPage({
     event.preventDefault();
     setError("");
     setSuccessMessage("");
+
+    if (!selectedDestination) {
+      setError("Choose a destination from the search results");
+      return;
+    }
+    if (!startDate || !endDate) {
+      setError("Start date and end date are required");
+      return;
+    }
+    if (startDate > endDate) {
+      setError("Start date must not be after end date");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -81,9 +99,14 @@ function TripsPage({
         body: JSON.stringify({
           name,
           description: description || undefined,
-          destination: destination || undefined,
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
+          destination: selectedDestination.displayName,
+          destinationId: selectedDestination.id,
+          destinationLatitude: selectedDestination.latitude,
+          destinationLongitude: selectedDestination.longitude,
+          destinationTimezone: selectedDestination.timezone,
+          destinationCountryCode: selectedDestination.countryCode,
+          startDate,
+          endDate,
         }),
       });
 
@@ -102,7 +125,8 @@ function TripsPage({
       setTrips((currentTrips) => [data, ...currentTrips]);
       setName("");
       setDescription("");
-      setDestination("");
+      setDestinationQuery("");
+      setSelectedDestination(null);
       setStartDate("");
       setEndDate("");
       setSuccessMessage("Trip created");
@@ -153,13 +177,13 @@ function TripsPage({
               />
             </label>
 
-            <label>
-              Destination
-              <input
-                value={destination}
-                onChange={(event) => setDestination(event.target.value)}
-              />
-            </label>
+            <LocationAutocomplete
+              query={destinationQuery}
+              selectedLocation={selectedDestination}
+              onQueryChange={setDestinationQuery}
+              onSelectionChange={setSelectedDestination}
+              required
+            />
 
             <div className="date-inputs">
               <label>
@@ -167,7 +191,9 @@ function TripsPage({
                 <input
                   type="date"
                   value={startDate}
+                  max={endDate || undefined}
                   onChange={(event) => setStartDate(event.target.value)}
+                  required
                 />
               </label>
 
@@ -176,7 +202,9 @@ function TripsPage({
                 <input
                   type="date"
                   value={endDate}
+                  min={startDate || undefined}
                   onChange={(event) => setEndDate(event.target.value)}
+                  required
                 />
               </label>
             </div>
