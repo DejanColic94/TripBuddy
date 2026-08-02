@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { Trip } from "./types/trip";
+import type { Trip, TripRole } from "./types/trip";
 
 type MockResponseBody = Record<string, unknown> | Array<Record<string, unknown>>;
 
@@ -686,6 +686,7 @@ describe("TripBuddy frontend", () => {
     expect(screen.getByText(/user access/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^remove$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/role for ana traveler/i)).not.toBeInTheDocument();
   });
 
   it("shows a guest the full trip page without write controls", async () => {
@@ -1187,14 +1188,17 @@ describe("TripBuddy frontend", () => {
     expect(within(participantsSection).getByText("Ana Traveler")).toBeInTheDocument();
     expect(within(participantsSection).getByText("admin")).toBeInTheDocument();
     expect(within(participantsSection).getByText("Milan Traveler")).toBeInTheDocument();
-    expect(within(participantsSection).getByText("user")).toBeInTheDocument();
+    expect(within(participantsSection).getByLabelText(/role for milan traveler/i)).toHaveValue("user");
   });
 
   it("allows an admin to remove participants, itinerary items, and expenses", async () => {
     const user = userEvent.setup();
     setAuthenticatedSession();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    let participants = [ownerParticipant, userParticipant];
+    let participants: Array<Omit<typeof ownerParticipant, "role"> & { role: TripRole }> = [
+      ownerParticipant,
+      userParticipant,
+    ];
     let itineraryItems = [
       {
         id: 21,
@@ -1283,6 +1287,53 @@ describe("TripBuddy frontend", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/trips/1/expenses/31"),
       expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("allows an admin to change a participant role", async () => {
+    const user = userEvent.setup();
+    setAuthenticatedSession();
+    let participants: Array<Omit<typeof ownerParticipant, "role"> & { role: TripRole }> = [
+      ownerParticipant,
+      userParticipant,
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.endsWith("/trips/1/participants/8") && init?.method === "PATCH") {
+        participants = participants.map((participant) =>
+          participant.userId === 8
+            ? { ...participant, role: "guest" as const }
+            : participant
+        );
+        return mockResponse(participants.find((participant) => participant.userId === 8)!);
+      }
+      if (url.endsWith("/trips") && !init?.method) {
+        return mockResponse([trip]);
+      }
+      if (url.endsWith("/trips/1/participants")) {
+        return mockResponse(participants);
+      }
+
+      return mockTripDetailsRead(url) ?? mockResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /paris/i }));
+
+    const roleSelect = await screen.findByLabelText(/role for milan traveler/i);
+    expect(screen.queryByLabelText(/role for ana traveler/i)).not.toBeInTheDocument();
+    await user.selectOptions(roleSelect, "guest");
+
+    await waitFor(() => expect(roleSelect).toHaveValue("guest"));
+    expect(screen.getByText("Participant role updated")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/trips/1/participants/8"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ role: "guest" }),
+      })
     );
   });
 

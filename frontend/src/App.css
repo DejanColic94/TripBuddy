@@ -972,6 +972,17 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.participant-role-select {
+  min-width: 92px;
+  border: 1px solid rgba(37, 109, 90, 0.2);
+  border-radius: 999px;
+  padding: 8px 32px 8px 12px;
+  background-color: rgba(37, 109, 90, 0.08);
+  color: #17483c;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .itinerary-card strong {
   display: block;
   color: #17483c;

@@ -154,6 +154,7 @@ function TripDetailsPage({
   const [isParticipantsLoading, setIsParticipantsLoading] = useState(true);
   const [isParticipantSubmitting, setIsParticipantSubmitting] = useState(false);
   const [deletingParticipantUserId, setDeletingParticipantUserId] = useState<number | null>(null);
+  const [updatingParticipantUserId, setUpdatingParticipantUserId] = useState<number | null>(null);
   const [isTripSaving, setIsTripSaving] = useState(false);
   const [isTripDeleting, setIsTripDeleting] = useState(false);
   const [isInvitesLoading, setIsInvitesLoading] = useState(true);
@@ -768,6 +769,61 @@ function TripDetailsPage({
     setDeletingParticipantUserId(null);
   };
 
+  const handleParticipantRoleChange = async (
+    participant: TripParticipant,
+    role: TripRole
+  ) => {
+    setParticipantError("");
+    setParticipantSuccessMessage("");
+    setUpdatingParticipantUserId(participant.userId);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/trips/${trip.id}/participants/${participant.userId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role }),
+        }
+      );
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      const data = (await response.json().catch(() => null)) as
+        | TripParticipant
+        | { error?: string }
+        | null;
+
+      if (!response.ok || !data || !("userId" in data)) {
+        setParticipantError(
+          (data && "error" in data && data.error) || "Failed to update participant role"
+        );
+        return;
+      }
+
+      const updatedParticipants = participants.map((currentParticipant) =>
+        currentParticipant.userId === participant.userId
+          ? { ...currentParticipant, ...data }
+          : currentParticipant
+      );
+      const updatedTrip = { ...currentTrip, participants: updatedParticipants };
+      setParticipants(updatedParticipants);
+      setCurrentTrip(updatedTrip);
+      onTripUpdated(updatedTrip);
+      setParticipantSuccessMessage("Participant role updated");
+    } catch {
+      setParticipantError("Failed to update participant role");
+    } finally {
+      setUpdatingParticipantUserId(null);
+    }
+  };
+
   const handleItineraryDelete = async (item: ItineraryItem) => {
     if (!window.confirm(`Delete itinerary item “${item.title}”?`)) {
       return;
@@ -1074,7 +1130,26 @@ function TripDetailsPage({
                     <p>Trip participant</p>
                   </div>
                   <div className="item-card-actions">
-                    <span>{participant.role}</span>
+                    {canManage && participant.userId !== currentTrip.createdBy ? (
+                      <select
+                        className="participant-role-select"
+                        aria-label={`Role for ${participant.name || `User ${participant.userId}`}`}
+                        value={participant.role}
+                        onChange={(event) =>
+                          void handleParticipantRoleChange(
+                            participant,
+                            event.target.value as TripRole
+                          )
+                        }
+                        disabled={updatingParticipantUserId === participant.userId}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="user">User</option>
+                        <option value="guest">Guest</option>
+                      </select>
+                    ) : (
+                      <span>{participant.role}</span>
+                    )}
                     {canManage && participant.userId !== currentTrip.createdBy ? (
                       <button
                         className="compact-danger-button"

@@ -15,6 +15,7 @@ const invitedCreatedUserId = 987657;
 const raceRecoveredUserId = 987661;
 const guestUserId = 987662;
 const adminUserId = 987663;
+const roleChangeUserId = 987664;
 const ownerEmail = "owner@example.com";
 const participantEmail = "participant@example.com";
 const invitedEmail = "invited@example.com";
@@ -25,6 +26,7 @@ const userNames = new Map([
   [invitedCreatedUserId, "Created Invitee"],
   [guestUserId, "Guest Traveler"],
   [adminUserId, "Admin Traveler"],
+  [roleChangeUserId, "Role Change Traveler"],
 ]);
 const identityUsersByEmail = new Map([
   [
@@ -441,6 +443,59 @@ describe("trip-service endpoints", () => {
 
     expect(updateResponse.status).toBe(200);
     expect(updateResponse.body.name).toBe(validTripPayload.name);
+  });
+
+  it("allows an admin to change a participant role", async () => {
+    const addResponse = await request(app)
+      .post(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ userId: roleChangeUserId, role: "user" });
+
+    expect(addResponse.status).toBe(201);
+
+    const updateResponse = await request(app)
+      .patch(`/trips/${tripId}/participants/${roleChangeUserId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ role: "guest" });
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateResponse.body).toEqual(
+      expect.objectContaining({
+        userId: roleChangeUserId,
+        name: "Role Change Traveler",
+        role: "guest",
+      })
+    );
+  });
+
+  it("rejects invalid participant role changes", async () => {
+    const response = await request(app)
+      .patch(`/trips/${tripId}/participants/${roleChangeUserId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ role: "viewer" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("role must be admin, user, or guest");
+  });
+
+  it("prevents a user participant from changing roles", async () => {
+    const response = await request(app)
+      .patch(`/trips/${tripId}/participants/${roleChangeUserId}`)
+      .set("Authorization", `Bearer ${participantToken}`)
+      .send({ role: "admin" });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Forbidden");
+  });
+
+  it("does not allow the trip creator role to be changed", async () => {
+    const response = await request(app)
+      .patch(`/trips/${tripId}/participants/${userId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ role: "guest" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Trip creator role cannot be changed");
   });
 
   it("allows a participant to list participants", async () => {

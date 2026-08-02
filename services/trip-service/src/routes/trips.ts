@@ -1361,6 +1361,72 @@ router.delete(
   }
 );
 
+router.patch(
+  "/:id/participants/:userId",
+  async (
+    req: Request<{ id: string; userId: string }, {}, { role?: unknown }>,
+    res: Response
+  ) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const tripId = Number(req.params.id);
+    const participantUserId = Number(req.params.userId);
+    const { role } = req.body;
+
+    if (!Number.isInteger(tripId)) {
+      return res.status(400).json({ error: "Invalid trip id" });
+    }
+
+    if (!Number.isInteger(participantUserId)) {
+      return res.status(400).json({ error: "Invalid participant user id" });
+    }
+
+    if (!isTripRole(role)) {
+      return res.status(400).json({ error: "role must be admin, user, or guest" });
+    }
+
+    try {
+      const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+      if (!authorization.allowed) {
+        return sendTripAuthorizationError(res, authorization);
+      }
+
+      if (participantUserId === authorization.createdBy) {
+        return res.status(400).json({ error: "Trip creator role cannot be changed" });
+      }
+
+      const result = await pool.query<TripParticipantRow>(
+        `UPDATE trip_participants
+         SET role = $3
+         WHERE trip_id = $1 AND user_id = $2
+         RETURNING id, trip_id, user_id, role, created_at`,
+        [tripId, participantUserId, role]
+      );
+
+      if (!result.rows[0]) {
+        return res.status(404).json({ error: "Participant not found" });
+      }
+
+      const names = await getUserNames(
+        [participantUserId],
+        req.headers.authorization
+      );
+
+      return res.status(200).json(
+        mapTripParticipant(
+          result.rows[0],
+          names.get(participantUserId)
+        )
+      );
+    } catch (error) {
+      console.error("[TRIPS] Failed to update participant role:", error);
+      return res.status(500).json({ error: "Failed to update participant role" });
+    }
+  }
+);
+
 router.get("/:tripId/summary", async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
