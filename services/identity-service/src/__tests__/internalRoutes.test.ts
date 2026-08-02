@@ -62,6 +62,28 @@ describe("identity-service internal routes", () => {
     expect(response.body).not.toHaveProperty("token");
   });
 
+  it("returns safe user details for internal id lookups", async () => {
+    const storedUser = await pool.query<{ id: number }>(
+      "SELECT id FROM users WHERE email = $1",
+      [testEmail]
+    );
+    const response = await request(app)
+      .get("/internal/users/by-ids")
+      .query({ ids: `${storedUser.rows[0].id},999999999` })
+      .set("X-Internal-Service-Secret", internalSecret);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      {
+        id: storedUser.rows[0].id,
+        name: testName,
+        email: testEmail,
+        role: "user",
+      },
+    ]);
+    expect(response.body[0]).not.toHaveProperty("password");
+  });
+
   it("looks up users case-insensitively", async () => {
     const response = await request(app)
       .get("/internal/users/by-email")

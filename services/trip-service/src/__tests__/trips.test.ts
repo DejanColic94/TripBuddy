@@ -30,6 +30,10 @@ const userNames = new Map([
 ]);
 const identityUsersByEmail = new Map([
   [
+    ownerEmail,
+    { id: userId, name: "Owner Traveler", email: ownerEmail, role: "user" },
+  ],
+  [
     invitedEmail,
     { id: nonOwnerUserId, name: "Invited Traveler", email: invitedEmail, role: "user" },
   ],
@@ -48,26 +52,33 @@ let failIdentityCreate = false;
 const raceRecoveredEmail = "race-recovered@example.com";
 
 async function cleanupTestData() {
+  const testTripOwnerIds = [userId, nonOwnerUserId];
   await pool.query(
-    "DELETE FROM trip_invites WHERE trip_id IN (SELECT id FROM trips WHERE created_by = $1)",
-    [userId]
+    `DELETE FROM trip_contacts
+     WHERE user_one_id = ANY($1::int[]) OR user_two_id = ANY($1::int[])`,
+    [[userId, participantUserId, nonOwnerUserId, guestUserId, adminUserId, roleChangeUserId]]
+  );
+  await pool.query(
+    "DELETE FROM trip_invites WHERE trip_id IN (SELECT id FROM trips WHERE created_by = ANY($1::int[]))",
+    [testTripOwnerIds]
   );
   await pool.query(
     `
       DELETE FROM trip_participants
-      WHERE trip_id IN (SELECT id FROM trips WHERE created_by = $1)
-        OR user_id IN ($1, $2, $3)
+      WHERE trip_id IN (SELECT id FROM trips WHERE created_by = ANY($1::int[]))
+        OR user_id = ANY($2::int[])
     `,
-    [userId, participantUserId, nonOwnerUserId]
+    [testTripOwnerIds, [userId, participantUserId, nonOwnerUserId]]
   );
-  await pool.query("DELETE FROM expenses WHERE trip_id IN (SELECT id FROM trips WHERE created_by = $1)", [
-    userId,
-  ]);
   await pool.query(
-    "DELETE FROM itinerary_items WHERE trip_id IN (SELECT id FROM trips WHERE created_by = $1)",
-    [userId]
+    "DELETE FROM expenses WHERE trip_id IN (SELECT id FROM trips WHERE created_by = ANY($1::int[]))",
+    [testTripOwnerIds]
   );
-  await pool.query("DELETE FROM trips WHERE created_by = $1", [userId]);
+  await pool.query(
+    "DELETE FROM itinerary_items WHERE trip_id IN (SELECT id FROM trips WHERE created_by = ANY($1::int[]))",
+    [testTripOwnerIds]
+  );
+  await pool.query("DELETE FROM trips WHERE created_by = ANY($1::int[])", [testTripOwnerIds]);
 }
 
 beforeAll(async () => {
@@ -89,6 +100,28 @@ beforeAll(async () => {
           ids
             .filter((id) => userNames.has(id))
             .map((id) => ({ id, name: userNames.get(id) })),
+      } as Response;
+    }
+
+    if (url.pathname === "/internal/users/by-ids") {
+      const ids = (url.searchParams.get("ids") ?? "")
+        .split(",")
+        .map(Number);
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          ids
+            .filter((id) => userNames.has(id))
+            .map((id) => ({
+              id,
+              name: userNames.get(id),
+              email:
+                Array.from(identityUsersByEmail.values()).find((user) => user.id === id)
+                  ?.email ?? `traveler-${id}@example.com`,
+              role: "user",
+            })),
       } as Response;
     }
 
@@ -193,6 +226,14 @@ beforeAll(async () => {
   });
   await initDb();
   await cleanupTestData();
+  await pool.query(
+    `
+      INSERT INTO trip_contacts (user_one_id, user_two_id)
+      VALUES ($1, $2), ($1, $3), ($1, $4), ($1, $5)
+      ON CONFLICT (user_one_id, user_two_id) DO NOTHING
+    `,
+    [userId, participantUserId, guestUserId, adminUserId, roleChangeUserId]
+  );
 });
 
 beforeEach(() => {
@@ -407,6 +448,18 @@ describe("trip-service endpoints", () => {
         name: "Shared Traveler",
         role: "user",
       })
+    );
+  });
+
+  it("does not allow an admin to add an account outside their accepted contacts", async () => {
+    const response = await request(app)
+      .post(`/trips/${tripId}/participants`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ userId: 999999, role: "user" });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe(
+      "Only contacts from accepted invitations can be added"
     );
   });
 
@@ -948,6 +1001,49 @@ describe("trip-service endpoints", () => {
         }),
       ])
     );
+
+    const contactResult = await pool.query(
+      `SELECT 1 FROM trip_contacts
+       WHERE user_one_id = $1 AND user_two_id = $2`,
+      [Math.min(userId, nonOwnerUserId), Math.max(userId, nonOwnerUserId)]
+    );
+    expect(contactResult.rowCount).toBe(1);
+  });
+
+  it("lists accepted invitation contacts for a different trip", async () => {
+    const secondTripResponse = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validTripPayload, name: "Contact Search Trip" });
+    const response = await request(app)
+      .get(`/trips/${secondTripResponse.body.id}/contacts?q=invited@example.com`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(secondTripResponse.status).toBe(201);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      {
+        userId: nonOwnerUserId,
+        name: "Invited Traveler",
+        email: invitedEmail,
+      },
+    ]);
+  });
+
+  it("makes the inviter available to the account that accepted the invitation", async () => {
+    const invitedUserTripResponse = await request(app)
+      .post("/trips")
+      .set("Authorization", `Bearer ${nonOwnerToken}`)
+      .send({ ...validTripPayload, name: "Invitee Contact Trip" });
+    const response = await request(app)
+      .get(`/trips/${invitedUserTripResponse.body.id}/contacts?q=${ownerEmail}`)
+      .set("Authorization", `Bearer ${nonOwnerToken}`);
+
+    expect(invitedUserTripResponse.status).toBe(201);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      { userId, name: "Owner Traveler", email: ownerEmail },
+    ]);
   });
 
   it("matches authenticated invite email case-insensitively after trimming", async () => {

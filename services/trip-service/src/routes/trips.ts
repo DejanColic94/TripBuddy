@@ -5,6 +5,7 @@ import {
   createInvitedUser,
   getUserByEmail,
   getUserNames,
+  getUsersByIds,
   IdentityClientError,
 } from "../clients/identityClient";
 import pool from "../db";
@@ -88,6 +89,8 @@ type TripInviteRow = {
   email: string;
   token: string;
   inviter_name?: string | null;
+  invited_by_user_id?: number | null;
+  accepted_by_user_id?: number | null;
   role: string;
   accepted_at: string | null;
   expires_at?: string;
@@ -622,7 +625,8 @@ router.post(
 
       const inviteResult = await client.query<TripInviteRow>(
         `
-          SELECT id, trip_id, email, token, role, accepted_at, expires_at, created_at
+          SELECT id, trip_id, email, token, inviter_name, invited_by_user_id,
+            accepted_by_user_id, role, accepted_at, expires_at, created_at
           FROM trip_invites
           WHERE token = $1
           FOR UPDATE
@@ -750,14 +754,32 @@ router.post(
         [invite.trip_id, participantUserId, invite.role]
       );
 
+      if (
+        invite.invited_by_user_id &&
+        invite.invited_by_user_id !== participantUserId
+      ) {
+        const userOneId = Math.min(invite.invited_by_user_id, participantUserId);
+        const userTwoId = Math.max(invite.invited_by_user_id, participantUserId);
+
+        await client.query(
+          `
+            INSERT INTO trip_contacts (user_one_id, user_two_id)
+            VALUES ($1, $2)
+            ON CONFLICT (user_one_id, user_two_id) DO NOTHING
+          `,
+          [userOneId, userTwoId]
+        );
+      }
+
       const acceptedInviteResult = await client.query<TripInviteRow>(
         `
           UPDATE trip_invites
-          SET accepted_at = CURRENT_TIMESTAMP
+          SET accepted_at = CURRENT_TIMESTAMP, accepted_by_user_id = $2
           WHERE id = $1
-          RETURNING id, trip_id, email, token, role, accepted_at, created_at
+          RETURNING id, trip_id, email, token, inviter_name, invited_by_user_id,
+            accepted_by_user_id, role, accepted_at, created_at
         `,
-        [invite.id]
+        [invite.id, participantUserId]
       );
 
       await client.query("COMMIT");
@@ -1172,11 +1194,13 @@ router.post(
 
       const result = await client.query<TripInviteRow>(
         `
-          INSERT INTO trip_invites (trip_id, email, token, inviter_name, role)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING id, trip_id, email, token, inviter_name, role, accepted_at, created_at
+          INSERT INTO trip_invites
+            (trip_id, email, token, inviter_name, invited_by_user_id, role)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id, trip_id, email, token, inviter_name, invited_by_user_id,
+            role, accepted_at, created_at
         `,
-        [tripId, normalizedEmail, inviteToken, inviterName, inviteRole]
+        [tripId, normalizedEmail, inviteToken, inviterName, req.user.id, inviteRole]
       );
 
       try {
@@ -1263,6 +1287,71 @@ router.get("/:id/participants", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/:id/contacts", async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const tripId = Number(req.params.id);
+  const searchQuery =
+    typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+
+  if (!Number.isInteger(tripId)) {
+    return res.status(400).json({ error: "Invalid trip id" });
+  }
+
+  try {
+    const authorization = await authorizeTrip(tripId, req.user.id, "manage");
+    if (!authorization.allowed) {
+      return sendTripAuthorizationError(res, authorization);
+    }
+
+    const result = await pool.query<{ contact_user_id: number }>(
+      `
+        WITH contact_ids AS (
+          SELECT CASE
+            WHEN user_one_id = $1 THEN user_two_id
+            ELSE user_one_id
+          END AS contact_user_id
+          FROM trip_contacts
+          WHERE user_one_id = $1 OR user_two_id = $1
+        )
+        SELECT contact_user_id
+        FROM contact_ids
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM trip_participants
+          WHERE trip_participants.trip_id = $2
+            AND trip_participants.user_id = contact_ids.contact_user_id
+        )
+      `,
+      [req.user.id, tripId]
+    );
+    const users = await getUsersByIds(
+      result.rows.map((row) => row.contact_user_id)
+    );
+    const contacts = users
+      .filter((user) => {
+        if (!searchQuery) return true;
+        return (
+          user.name.toLowerCase().includes(searchQuery) ||
+          user.email.toLowerCase().includes(searchQuery)
+        );
+      })
+      .map((user) => ({ userId: user.id, name: user.name, email: user.email }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    return res.status(200).json(contacts);
+  } catch (error) {
+    if (error instanceof IdentityClientError) {
+      return res.status(502).json({ error: "Failed to load previous contacts" });
+    }
+
+    console.error("[TRIPS] Failed to get previous contacts:", error);
+    return res.status(500).json({ error: "Failed to load previous contacts" });
+  }
+});
+
 router.post(
   "/:id/participants",
   async (req: Request<{ id: string }, {}, AddTripParticipantBody>, res: Response) => {
@@ -1291,6 +1380,27 @@ router.post(
         return sendTripAuthorizationError(res, authorization);
       }
 
+      const contactResult = await pool.query(
+        `
+          SELECT 1
+          FROM trip_contacts
+          WHERE (user_one_id = $1 AND user_two_id = $2)
+            OR (user_one_id = $2 AND user_two_id = $1)
+        `,
+        [req.user.id, userId]
+      );
+
+      if (contactResult.rowCount === 0) {
+        return res.status(403).json({
+          error: "Only contacts from accepted invitations can be added",
+        });
+      }
+
+      const [contactUser] = await getUsersByIds([userId]);
+      if (!contactUser) {
+        return res.status(404).json({ error: "Contact account not found" });
+      }
+
       const result = await pool.query<TripParticipantRow>(
         `
           INSERT INTO trip_participants (trip_id, user_id, role)
@@ -1300,12 +1410,14 @@ router.post(
         [tripId, userId, role ?? "user"]
       );
 
-      const names = await getUserNames([userId], req.headers.authorization);
-
       return res.status(201).json(
-        mapTripParticipant(result.rows[0], names.get(userId))
+        mapTripParticipant(result.rows[0], contactUser.name)
       );
     } catch (error) {
+      if (error instanceof IdentityClientError) {
+        return res.status(502).json({ error: "Failed to verify contact account" });
+      }
+
       const dbError = error as DatabaseError;
 
       if (dbError.code === "23505") {

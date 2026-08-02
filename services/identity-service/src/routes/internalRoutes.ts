@@ -15,6 +15,38 @@ const router = Router();
 
 router.use(internalServiceAuthMiddleware);
 
+router.get("/users/by-ids", async (req, res) => {
+  const idsParam = typeof req.query.ids === "string" ? req.query.ids : "";
+  const ids = Array.from(
+    new Set(
+      idsParam
+        .split(",")
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )
+  );
+
+  if (ids.length === 0) {
+    return res.status(200).json([]);
+  }
+
+  if (ids.length > 100) {
+    return res.status(400).json({ error: "A maximum of 100 user ids is allowed" });
+  }
+
+  try {
+    const result = await pool.query<UserLookupRow>(
+      "SELECT id, name, email, role FROM users WHERE id = ANY($1::int[]) ORDER BY name, id",
+      [ids]
+    );
+
+    return res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("[IDENTITY] Internal user id lookup failed:", error);
+    return res.status(500).json({ error: "Failed to look up users" });
+  }
+});
+
 async function rollbackTransaction(client: PoolClient): Promise<void> {
   try {
     await client.query("ROLLBACK");
