@@ -154,13 +154,32 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
         </div>
       </div>
 
-      <WeatherForecast
-        destination={data.trip.destination}
-        startDate={data.trip.startDate}
-        endDate={data.trip.endDate}
-      />
+      <nav className="trip-section-nav" aria-label="Trip sections">
+        <a href="#guest-trip-overview">Overview</a>
+        <a href="#guest-trip-itinerary">Itinerary</a>
+        <a href="#guest-trip-budget">Budget</a>
+      </nav>
 
-      <div className="details-layout">
+      <section
+        className="trip-content-section trip-content-section--overview"
+        id="guest-trip-overview"
+        aria-labelledby="guest-trip-overview-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">01</span>
+          <div>
+            <h2 id="guest-trip-overview-heading">Overview</h2>
+            <p>Destination, dates, weather, and the trip at a glance.</p>
+          </div>
+        </header>
+
+        <WeatherForecast
+          destination={data.trip.destination}
+          startDate={data.trip.startDate}
+          endDate={data.trip.endDate}
+        />
+
+        <div className="details-layout">
         <section className="panel trip-info-card">
           <p className="eyebrow">Overview</p>
           <h2>{data.trip.name}</h2>
@@ -191,9 +210,9 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
             </div>
           </dl>
         </section>
-      </div>
+        </div>
 
-      <section className="summary-section">
+        <section className="summary-section">
         <div className="section-heading">
           <h2>Trip summary</h2>
         </div>
@@ -215,12 +234,26 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
             <strong>{data.expenses.length}</strong>
           </article>
         </div>
+        </section>
       </section>
 
-      <div className="itinerary-layout read-only-content-layout">
+      <section
+        className="trip-content-section trip-content-section--itinerary"
+        id="guest-trip-itinerary"
+        aria-labelledby="guest-trip-itinerary-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">02</span>
+          <div>
+            <h2 id="guest-trip-itinerary-heading">Itinerary</h2>
+            <p>Plans, bookings, and scheduled activities in one timeline.</p>
+          </div>
+        </header>
+
+        <div className="itinerary-layout read-only-content-layout">
         <section className="itinerary-section">
           <div className="section-heading">
-            <h2>Itinerary</h2>
+            <h3>Scheduled items</h3>
             <span>{data.itinerary.length} total</span>
           </div>
 
@@ -240,9 +273,23 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
             </ul>
           )}
         </section>
-      </div>
+        </div>
+      </section>
 
-      <div className="expenses-layout read-only-content-layout">
+      <section
+        className="trip-content-section trip-content-section--budget"
+        id="guest-trip-budget"
+        aria-labelledby="guest-trip-budget-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">03</span>
+          <div>
+            <h2 id="guest-trip-budget-heading">Budget</h2>
+            <p>Converted totals and the complete cost list.</p>
+          </div>
+        </header>
+
+        <div className="expenses-layout read-only-content-layout">
         <section className="expenses-section">
           <div className="expense-total-card">
             <div className="expense-total-heading">
@@ -301,7 +348,8 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
             </ul>
           )}
         </section>
-      </div>
+        </div>
+      </section>
     </section>
   );
 }
