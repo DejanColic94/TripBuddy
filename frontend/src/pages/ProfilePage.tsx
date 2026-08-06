@@ -25,11 +25,6 @@ function ProfilePage({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [email, setEmail] = useState(currentUser.email);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [emailError, setEmailError] = useState("");
-  const [emailSuccessMessage, setEmailSuccessMessage] = useState("");
-  const [isEmailSubmitting, setIsEmailSubmitting] = useState(false);
   const [passwordCurrent, setPasswordCurrent] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -92,63 +87,6 @@ function ProfilePage({
       setError("Failed to update profile");
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleEmailSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setEmailError("");
-    setEmailSuccessMessage("");
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    if (!normalizedEmail) {
-      setEmailError("New email is required");
-      return;
-    }
-
-    if (!currentPassword) {
-      setEmailError("Current password is required");
-      return;
-    }
-
-    setIsEmailSubmitting(true);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/me/email`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: normalizedEmail,
-          currentPassword,
-        }),
-      });
-
-      if (response.status === 401) {
-        onUnauthorized();
-        return;
-      }
-
-      const data = (await response.json()) as { message?: string };
-
-      if (!response.ok) {
-        setEmailError(data.message || "Failed to request email change");
-        return;
-      }
-
-      setEmail(currentUser.email);
-      setCurrentPassword("");
-      setEmailSuccessMessage(
-        data.message ||
-          "Verification email sent. Your current email remains active until confirmation"
-      );
-    } catch {
-      setEmailError("Failed to request email change");
-    } finally {
-      setIsEmailSubmitting(false);
     }
   };
 
@@ -243,55 +181,22 @@ function ProfilePage({
             />
           </label>
 
+          <label>
+            Email
+            <input
+              aria-label="Email"
+              value={currentUser.email}
+              readOnly
+              aria-readonly="true"
+            />
+            <small>Your email is your permanent sign-in identifier.</small>
+          </label>
+
           {error ? <p className="error">{error}</p> : null}
           {successMessage ? <p className="success">{successMessage}</p> : null}
 
           <button className="primary-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Saving..." : "Save profile"}
-          </button>
-        </form>
-      </section>
-
-      <section className="panel profile-card">
-        <h2>Change email</h2>
-        <p className="page-subtitle">
-          Confirm your password, then verify the link sent to your new address.
-          Your current email stays active until verification.
-        </p>
-
-        <form className="form-stack" onSubmit={handleEmailSubmit}>
-          <label>
-            New email
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </label>
-
-          <label>
-            Current password
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </label>
-
-          {emailError ? <p className="error">{emailError}</p> : null}
-          {emailSuccessMessage ? (
-            <p className="success">{emailSuccessMessage}</p>
-          ) : null}
-
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={isEmailSubmitting}
-          >
-            {isEmailSubmitting ? "Sending verification..." : "Change email"}
           </button>
         </form>
       </section>
