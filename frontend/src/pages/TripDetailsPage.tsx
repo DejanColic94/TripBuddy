@@ -1004,16 +1004,36 @@ function TripDetailsPage({
         </div>
       </div>
 
-      <WeatherForecast
-        destination={currentTrip.destination}
-        startDate={currentTrip.startDate}
-        endDate={currentTrip.endDate}
-      />
+      <nav className="trip-section-nav" aria-label="Trip sections">
+        <a href="#trip-overview">Overview</a>
+        <a href="#trip-people">People</a>
+        <a href="#trip-itinerary">Itinerary</a>
+        <a href="#trip-budget">Budget</a>
+      </nav>
 
-      {tripManagementError ? <p className="error">{tripManagementError}</p> : null}
+      <section
+        className="trip-content-section trip-content-section--overview"
+        id="trip-overview"
+        aria-labelledby="trip-overview-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">01</span>
+          <div>
+            <h2 id="trip-overview-heading">Overview</h2>
+            <p>Destination, dates, weather, and the trip at a glance.</p>
+          </div>
+        </header>
 
-      {canManage && isEditingTrip ? (
-        <section className="panel trip-edit-card">
+        <WeatherForecast
+          destination={currentTrip.destination}
+          startDate={currentTrip.startDate}
+          endDate={currentTrip.endDate}
+        />
+
+        {tripManagementError ? <p className="error">{tripManagementError}</p> : null}
+
+        {canManage && isEditingTrip ? (
+          <section className="panel trip-edit-card">
           <h2>Edit trip</h2>
           <form className="form-stack" onSubmit={handleTripUpdate}>
             <label>
@@ -1066,10 +1086,10 @@ function TripDetailsPage({
               {isTripSaving ? "Saving..." : "Save changes"}
             </button>
           </form>
-        </section>
-      ) : null}
+          </section>
+        ) : null}
 
-      <div className="details-layout">
+        <div className="details-layout">
         <section className="panel trip-info-card">
           <p className="eyebrow">Overview</p>
           <h2>{currentTrip.name}</h2>
@@ -1097,9 +1117,9 @@ function TripDetailsPage({
             </div>
           </dl>
         </section>
-      </div>
+        </div>
 
-      <section className="summary-section">
+        <section className="summary-section">
         <div className="section-heading">
           <h2>Trip summary</h2>
         </div>
@@ -1136,9 +1156,23 @@ function TripDetailsPage({
             </article>
           </div>
         ) : null}
+        </section>
       </section>
 
-      <div className={`participants-layout${canManage ? "" : " read-only-content-layout"}`}>
+      <section
+        className="trip-content-section trip-content-section--people"
+        id="trip-people"
+        aria-labelledby="trip-people-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">02</span>
+          <div>
+            <h2 id="trip-people-heading">People</h2>
+            <p>Participants, access roles, and outstanding invitations.</p>
+          </div>
+        </header>
+
+        <div className={`participants-layout${canManage ? "" : " read-only-content-layout"}`}>
         {canManage ? (
           <section className="panel participant-form-card">
           <h2>Add participant</h2>
@@ -1281,10 +1315,10 @@ function TripDetailsPage({
             </ul>
           ) : null}
         </section>
-      </div>
+        </div>
 
-      {canManage ? (
-        <div className="invites-layout">
+        {canManage ? (
+          <div className="invites-layout">
         <section className="panel invite-form-card">
           <h2>Create invite</h2>
 
@@ -1353,10 +1387,24 @@ function TripDetailsPage({
             </ul>
           ) : null}
         </section>
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </section>
 
-      <div className={`itinerary-layout${canContribute ? "" : " read-only-content-layout"}`}>
+      <section
+        className="trip-content-section trip-content-section--itinerary"
+        id="trip-itinerary"
+        aria-labelledby="trip-itinerary-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">03</span>
+          <div>
+            <h2 id="trip-itinerary-heading">Itinerary</h2>
+            <p>Plans, bookings, and scheduled activities in one timeline.</p>
+          </div>
+        </header>
+
+        <div className={`itinerary-layout${canContribute ? "" : " read-only-content-layout"}`}>
         {canContribute ? (
           <section className="panel itinerary-form-card">
           <h2>Add itinerary item</h2>
@@ -1402,7 +1450,7 @@ function TripDetailsPage({
 
         <section className="itinerary-section">
           <div className="section-heading">
-            <h2>Itinerary</h2>
+            <h3>Scheduled items</h3>
             <span>{itineraryItems.length} total</span>
           </div>
 
@@ -1444,9 +1492,23 @@ function TripDetailsPage({
             </ul>
           ) : null}
         </section>
-      </div>
+        </div>
+      </section>
 
-      <div className={`expenses-layout${canContribute ? "" : " read-only-content-layout"}`}>
+      <section
+        className="trip-content-section trip-content-section--budget"
+        id="trip-budget"
+        aria-labelledby="trip-budget-heading"
+      >
+        <header className="trip-content-section-header">
+          <span className="trip-section-number" aria-hidden="true">04</span>
+          <div>
+            <h2 id="trip-budget-heading">Budget</h2>
+            <p>Expense entry, converted totals, and the complete cost list.</p>
+          </div>
+        </header>
+
+        <div className={`expenses-layout${canContribute ? "" : " read-only-content-layout"}`}>
         {canContribute ? (
           <section className="panel expense-form-card">
           <h2>Add expense</h2>
@@ -1598,7 +1660,8 @@ function TripDetailsPage({
             </ul>
           ) : null}
         </section>
-      </div>
+        </div>
+      </section>
     </section>
   );
 }

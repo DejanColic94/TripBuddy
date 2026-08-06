@@ -1,6 +1,6 @@
 {
   "name": "integration-service",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -32,11 +32,12 @@
     "ts-jest": "^29.4.12",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
-  }
-  ,
+  },
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testMatch": ["**/*.test.ts"]
+    "testMatch": [
+      "**/*.test.ts"
+    ]
   }
 }
