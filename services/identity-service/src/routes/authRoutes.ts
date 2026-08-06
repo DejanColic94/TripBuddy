@@ -5,7 +5,6 @@ import jwt from "jsonwebtoken";
 import pool from "../db";
 import authMiddleware from "../middleware/authMiddleware";
 import {
-  sendEmailChangeVerification,
   sendEmailVerification,
   sendPasswordResetEmail,
 } from "../services/emailService";
@@ -234,14 +233,10 @@ router.post("/verify-email", async (req, res) => {
 
   try {
     await client.query("BEGIN");
-    const tokenResult = await client.query<{
-      user_id: number;
-      pending_email: string | null;
-    }>(
+    const tokenResult = await client.query<{ user_id: number }>(
       `
-        SELECT token.user_id, users.pending_email
+        SELECT token.user_id
         FROM email_verification_tokens token
-        JOIN users ON users.id = token.user_id
         WHERE token.token_hash = $1
           AND token.used_at IS NULL
           AND token.expires_at > CURRENT_TIMESTAMP
@@ -258,21 +253,10 @@ router.post("/verify-email", async (req, res) => {
         .json({ message: "Verification link is invalid or has expired" });
     }
 
-    if (verificationToken.pending_email) {
-      await client.query(
-        `
-          UPDATE users
-          SET email = pending_email, pending_email = NULL, email_verified = TRUE
-          WHERE id = $1
-        `,
-        [verificationToken.user_id]
-      );
-    } else {
-      await client.query(
-        "UPDATE users SET email_verified = TRUE WHERE id = $1",
-        [verificationToken.user_id]
-      );
-    }
+    await client.query(
+      "UPDATE users SET email_verified = TRUE WHERE id = $1",
+      [verificationToken.user_id]
+    );
     await client.query(
       `
         UPDATE email_verification_tokens
@@ -653,136 +637,6 @@ router.patch("/me", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("[IDENTITY] Profile name update failed:", error);
     return res.status(500).json({ message: "Failed to update profile" });
-  }
-});
-
-router.patch("/me/email", authMiddleware, async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({
-      message: "Unauthorized",
-    });
-  }
-
-  const { email, currentPassword } = req.body;
-
-  if (typeof email !== "string" || email.trim().length === 0) {
-    return res.status(400).json({ message: "New email is required" });
-  }
-
-  if (typeof currentPassword !== "string" || currentPassword.length === 0) {
-    return res.status(400).json({ message: "Current password is required" });
-  }
-
-  const normalizedEmail = email.trim().toLowerCase();
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  if (normalizedEmail.length > 320 || !emailPattern.test(normalizedEmail)) {
-    return res.status(400).json({ message: "Enter a valid email address" });
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    const currentUserResult = await client.query<
-      AuthUser & { password: string }
-    >(
-      `
-        SELECT id, name, email, role, password, email_verified
-        FROM users
-        WHERE id = $1
-        FOR UPDATE
-      `,
-      [req.user.id]
-    );
-    const currentUser = currentUserResult.rows[0];
-
-    if (!currentUser) {
-      await client.query("ROLLBACK");
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    if (!(await bcrypt.compare(currentPassword, currentUser.password))) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ message: "Current password is incorrect" });
-    }
-
-    if (currentUser.email.trim().toLowerCase() === normalizedEmail) {
-      await client.query("ROLLBACK");
-      return res
-        .status(400)
-        .json({ message: "New email must be different from current email" });
-    }
-
-    const emailInUse = await client.query(
-      `
-        SELECT id
-        FROM users
-        WHERE LOWER(email) = $1 OR LOWER(pending_email) = $1
-        LIMIT 1
-      `,
-      [normalizedEmail]
-    );
-
-    if (emailInUse.rowCount && emailInUse.rowCount > 0) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ message: "Email already exists" });
-    }
-
-    const verification = createEmailVerificationToken();
-    await client.query(
-      "UPDATE users SET pending_email = $1 WHERE id = $2",
-      [normalizedEmail, currentUser.id]
-    );
-    await client.query(
-      `
-        UPDATE email_verification_tokens
-        SET used_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1 AND used_at IS NULL
-      `,
-      [currentUser.id]
-    );
-    await client.query(
-      `
-        INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
-        VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '24 hours')
-      `,
-      [currentUser.id, verification.tokenHash]
-    );
-    await sendEmailChangeVerification({
-      recipientEmail: normalizedEmail,
-      displayName: currentUser.name,
-      verificationToken: verification.token,
-    });
-    await client.query("COMMIT");
-
-    return res.status(200).json({
-      message:
-        "Verification email sent. Your current email remains active until you confirm the new address",
-    });
-  } catch (error) {
-    try {
-      await client.query("ROLLBACK");
-    } catch (rollbackError) {
-      console.error(
-        "[IDENTITY] Failed to rollback profile email update:",
-        rollbackError
-      );
-    }
-
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "23505"
-    ) {
-      return res.status(409).json({ message: "Email already exists" });
-    }
-
-    console.error("[IDENTITY] Profile email update failed:", error);
-    return res.status(500).json({ message: "Failed to request email change" });
-  } finally {
-    client.release();
   }
 });
 

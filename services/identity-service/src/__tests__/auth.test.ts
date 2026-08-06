@@ -2,41 +2,29 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import app from "../app";
 import pool, { initDb } from "../db";
-import {
-  sendEmailChangeVerification,
-  sendEmailVerification,
-} from "../services/emailService";
+import { sendEmailVerification } from "../services/emailService";
 
 jest.mock("../services/emailService", () => ({
   ...jest.requireActual("../services/emailService"),
-  sendEmailChangeVerification: jest.fn(),
   sendEmailVerification: jest.fn(),
 }));
 
 const mockedSendEmailVerification =
   sendEmailVerification as jest.MockedFunction<typeof sendEmailVerification>;
-const mockedSendEmailChangeVerification =
-  sendEmailChangeVerification as jest.MockedFunction<
-    typeof sendEmailChangeVerification
-  >;
-
 const email = `test-${Date.now()}@example.com`;
 const password = "password123";
 const name = "Test Traveler";
-const changedEmail = `changed-${Date.now()}@example.com`;
-const existingEmail = `existing-${Date.now()}@example.com`;
 
 beforeAll(async () => {
   process.env.IDENTITY_JWT_SECRET ??= "test_identity_secret";
   mockedSendEmailVerification.mockResolvedValue();
-  mockedSendEmailChangeVerification.mockResolvedValue();
   await initDb();
 });
 
 afterAll(async () => {
   await pool.query(
     "DELETE FROM users WHERE LOWER(email) = ANY($1::text[])",
-    [[email, changedEmail, existingEmail].map((value) => value.toLowerCase())]
+    [[email].map((value) => value.toLowerCase())]
   );
   await pool.end();
 });
@@ -256,132 +244,13 @@ describe("identity-service auth endpoints", () => {
     expect(response.status).toBe(401);
   });
 
-  it("changes email only after verifying the new address", async () => {
+  it("does not expose a profile email change endpoint", async () => {
     const response = await request(app)
       .patch("/me/email")
       .set("Authorization", `Bearer ${token}`)
-      .send({
-        email: `  ${changedEmail.toUpperCase()}  `,
-        currentPassword: password,
-      });
+      .send({ email: "new@example.com", currentPassword: password });
 
-    expect(response.status).toBe(200);
-    expect(response.body.message).toMatch(/current email remains active/i);
-    expect(mockedSendEmailChangeVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientEmail: changedEmail })
-    );
-
-    const storedUser = await pool.query(
-      "SELECT id, email, pending_email FROM users WHERE email = $1",
-      [email]
-    );
-    expect(storedUser.rows[0].email).toBe(email);
-    expect(storedUser.rows[0].pending_email).toBe(changedEmail);
-
-    const emailChangeCalls = mockedSendEmailChangeVerification.mock.calls;
-    const verificationToken =
-      emailChangeCalls[emailChangeCalls.length - 1]?.[0].verificationToken;
-    const verificationResponse = await request(app)
-      .post("/verify-email")
-      .send({ token: verificationToken });
-    expect(verificationResponse.status).toBe(200);
-
-    const verifiedUser = await pool.query(
-      "SELECT email, pending_email FROM users WHERE id = $1",
-      [storedUser.rows[0].id]
-    );
-    expect(verifiedUser.rows[0].email).toBe(changedEmail);
-    expect(verifiedUser.rows[0].pending_email).toBeNull();
-
-    await pool.query(
-      "UPDATE users SET email = $1, pending_email = NULL WHERE id = $2",
-      [email, storedUser.rows[0].id]
-    );
-  });
-
-  it("rejects an email change when the current password is wrong", async () => {
-    const response = await request(app)
-      .patch("/me/email")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        email: changedEmail,
-        currentPassword: "wrong-password",
-      });
-
-    expect(response.status).toBe(400);
-    expect(response.body.message).toBe("Current password is incorrect");
-  });
-
-  it("keeps the current email when the verification email cannot be sent", async () => {
-    mockedSendEmailChangeVerification.mockRejectedValueOnce(
-      new Error("Email provider unavailable")
-    );
-
-    const response = await request(app)
-      .patch("/me/email")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        email: changedEmail,
-        currentPassword: password,
-      });
-
-    expect(response.status).toBe(500);
-    expect(response.body.message).toBe("Failed to request email change");
-
-    const storedUser = await pool.query(
-      "SELECT email, pending_email FROM users WHERE email = $1",
-      [email]
-    );
-    expect(storedUser.rows[0].email).toBe(email);
-    expect(storedUser.rows[0].pending_email).toBeNull();
-  });
-
-  it("rejects an invalid new email", async () => {
-    const response = await request(app)
-      .patch("/me/email")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ email: "not-an-email", currentPassword: password });
-
-    expect(response.status).toBe(400);
-    expect(response.body.message).toBe("Enter a valid email address");
-  });
-
-  it("rejects an unchanged email", async () => {
-    const response = await request(app)
-      .patch("/me/email")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ email: email.toUpperCase(), currentPassword: password });
-
-    expect(response.status).toBe(400);
-    expect(response.body.message).toBe(
-      "New email must be different from current email"
-    );
-  });
-
-  it("rejects an email already used by another account", async () => {
-    const registerResponse = await request(app)
-      .post("/register")
-      .send({ name: "Existing User", email: existingEmail, password });
-    expect(registerResponse.status).toBe(201);
-
-    const response = await request(app)
-      .patch("/me/email")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        email: existingEmail.toUpperCase(),
-        currentPassword: password,
-      });
-
-    expect(response.status).toBe(409);
-    expect(response.body.message).toBe("Email already exists");
-  });
-
-  it("rejects email changes without authentication", async () => {
-    const response = await request(app)
-      .patch("/me/email")
-      .send({ email: changedEmail, currentPassword: password });
-
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(404);
   });
 
   it("changes password after verifying the current password", async () => {
