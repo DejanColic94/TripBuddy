@@ -1,206 +1,140 @@
 # TripBuddy
 
-TripBuddy is a web application for planning and managing trips. The main focus of the project is demonstrating a microservice architecture while building a travel planning platform.
+TripBuddy is a full-stack travel planning application built as a diploma project. It lets users create trips, organize itineraries and expenses, invite other travelers, assign access roles, and review destination weather and converted costs from one responsive interface.
 
-Planned features include authentication, trip management, participants, expenses, itinerary management, and external API integrations for weather and exchange rates.
+The application is deployed as a React frontend and a containerized microservice backend. It supports English and Serbian, light and dark themes, registered collaboration, and read-only guest access.
 
-## Architecture overview
+## Main features
 
-TripBuddy is organized into these parts:
+- Account registration, email verification, login, password reset, profile editing, and password changes
+- Validated destination search backed by Open-Meteo geocoding data
+- Trip creation, editing, deletion, and participant-aware dashboards
+- Three trip roles: `admin`, `user`, and `guest`
+- Email invitations for existing or new users
+- Reusable contacts created from accepted invitations
+- Time-limited read-only guest links
+- Itinerary items restricted to the trip date range
+- Expense tracking with validated currencies and converted totals
+- Weather forecasts and historical climate estimates for future trip dates
+- English and Serbian localization
+- Persistent light and dark themes
+- Responsive desktop and mobile layouts
+- Automated service and frontend tests in GitHub Actions
 
-| Service               | Role                                                   |
-| --------------------- | ------------------------------------------------------ |
-| `frontend`            | React + TypeScript + Vite client application           |
-| `gateway`             | API Gateway and single entry point for the frontend    |
-| `identity-service`    | Authentication, users, JWT, and identity database      |
-| `trip-service`        | Trips, members, expenses, itinerary, and trip database |
-| `integration-service` | External APIs such as weather and exchange rates       |
+## System components
 
-Basic request flow:
+| Component | Technology | Responsibility |
+| --- | --- | --- |
+| Frontend | React, TypeScript, Vite | User interface, client state, localization, themes |
+| Gateway | Express, TypeScript | Public backend entry point, routing, CORS, rate limits |
+| Identity Service | Express, PostgreSQL | Accounts, credentials, JWTs, verification and reset flows |
+| Trip Service | Express, PostgreSQL | Trips, roles, contacts, invitations, guests, itineraries, expenses |
+| Integration Service | Express, Axios | Locations, weather/climate data, exchange rates |
+| Identity DB | PostgreSQL 16 | Identity-owned tables |
+| Trip DB | PostgreSQL 16 | Trip-domain tables |
 
-- The frontend calls the gateway.
-- The gateway routes requests to the backend services.
-- Services communicate synchronously over HTTP REST.
-- Each main service has its own PostgreSQL database.
-- Docker is used for infrastructure.
+## External services
 
-## Prerequisites
+- [Open-Meteo](https://open-meteo.com/) for destination search, forecasts, and historical climate data
+- [Frankfurter](https://www.frankfurter.app/) for reference exchange rates
+- [Resend](https://resend.com/) for transactional email delivery
+- Vercel for the production frontend
+- A Docker-enabled VPS for the production backend and databases
 
-- Node.js
-- npm
-- Docker Desktop
+## Quick start
+
+Requirements:
+
+- Docker Desktop with Docker Compose
 - Git
+- Node.js 20+ and npm when running components outside Docker
 
-## Startup commands
-
-### Start full local stack with Docker Compose
+1. Copy `.env.example` to `.env`.
+2. Replace every `<PLACEHOLDER>` with a real local value.
+3. Start the stack:
 
 ```bash
 docker compose up --build
 ```
 
-This starts:
+4. Open [http://localhost:5173](http://localhost:5173).
 
-- frontend: http://localhost:5173
-- gateway: http://localhost:4000
-- identity-service: http://localhost:4001
-- trip-service: http://localhost:4002
-- identity-db: localhost:5435
-- trip-db: localhost:5436
+Local endpoints:
 
-The backend services wait for PostgreSQL healthchecks before starting. The frontend container also prints the app URL in the Compose logs:
+| Component | URL |
+| --- | --- |
+| Frontend | `http://localhost:5173` |
+| Gateway | `http://localhost:4000` |
+| Identity Service | `http://localhost:4001` |
+| Trip Service | `http://localhost:4002` |
+| Integration Service | `http://localhost:4003` |
+| Identity PostgreSQL | `localhost:5435` |
+| Trip PostgreSQL | `localhost:5436` |
+
+Stop the stack without deleting database data:
+
+```bash
+docker compose down
+```
+
+## Repository structure
 
 ```text
-TripBuddy frontend available at: http://localhost:5173/
+TripBuddy/
+├── .github/workflows/        GitHub Actions CI
+├── docs/                     Project documentation
+├── frontend/                 React client application
+├── services/
+│   ├── gateway/              Public API gateway
+│   ├── identity-service/     Identity microservice
+│   ├── integration-service/  External API adapter
+│   └── trip-service/         Trip-domain microservice
+├── docker-compose.yml        Local development stack
+├── docker-compose.prod.yml   Production backend stack
+├── .env.example              Local environment template
+└── .env.production.example   Production environment template
 ```
 
-### Stop full local stack
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [API reference](docs/API.md)
+- [Development guide](docs/DEVELOPMENT.md)
+- [Deployment and operations](docs/DEPLOYMENT.md)
+- [Testing guide](docs/TESTING.md)
+- [User guide](docs/USER_GUIDE.md)
+- [Security notes](docs/SECURITY.md)
+- [Frontend guide](frontend/README.md)
+- [Changelog](CHANGELOG.md)
+
+## Testing
+
+Each testable component owns its test command:
 
 ```bash
-docker compose down
+cd services/identity-service && npm test
+cd services/trip-service && npm test
+cd services/integration-service && npm test
+cd frontend && npm test
 ```
 
-### Manual local workflow
-
-You can still run services manually if you prefer.
-
-### Start identity PostgreSQL with Docker
+The frontend additionally provides:
 
 ```bash
-docker run -d --name identity-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=identity_db -p 5435:5432 postgres:15
+npm run lint
+npm run build
 ```
 
-### Start trip PostgreSQL with Docker
+GitHub Actions runs TypeScript checks and all four test suites on pushes to `develop` and `master`, and on pull requests targeting `develop`.
 
-```bash
-docker run -d --name trip-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=trip_db -p 5436:5432 postgres:15
-```
+## Branch and release workflow
 
-### Start existing identity PostgreSQL container
+- `feature/*` and `fix/*` branches are created from `develop`.
+- Completed branches are merged into `develop` after local verification.
+- CI must be green before release.
+- A tested `develop` version is merged into `master` and tagged using semantic versioning, for example `v1.3.0`.
+- Production is updated from `master`.
 
-```bash
-docker start identity-postgres
-```
+## License and purpose
 
-### Check running containers
-
-```bash
-docker ps
-```
-
-### Stop identity PostgreSQL
-
-```bash
-docker stop identity-postgres
-```
-
-### Remove identity PostgreSQL
-
-```bash
-docker rm -f identity-postgres
-```
-
-### Start identity-service
-
-```bash
-cd services/identity-service
-npm install
-npm run dev
-```
-
-### Start trip-service
-
-```bash
-cd services/trip-service
-npm install
-npm run dev
-```
-
-### Start gateway
-
-```bash
-cd services/gateway
-npm install
-npm run dev
-```
-
-### Start frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Backend tests
-
-Run backend endpoint tests from each service directory:
-
-```bash
-cd services/identity-service
-npm test
-```
-
-```bash
-cd services/trip-service
-npm test
-```
-
-The tests use Jest + Supertest and expect the local PostgreSQL databases to be available. See `.env.test.example` in each service for the default test database settings.
-
-## Continuous integration
-
-GitHub Actions automatically runs the identity-service, trip-service, and frontend test suites on pushes to `develop` or `master`, and on pull requests targeting `develop`.
-
-## Production backend
-
-On the VPS, copy the production environment template:
-
-```bash
-cp .env.production.example .env.production
-```
-
-Fill `.env.production` with real database credentials and a strong JWT secret. Do not commit `.env.production`.
-
-Start the production backend:
-
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-```
-
-## Docker Compose quick reference
-
-Start the stack:
-
-```bash
-docker compose up
-```
-
-Stop the stack:
-
-```bash
-docker compose down
-```
-
-If a service has stale dependencies, rebuild that service without cache. For example:
-
-```bash
-docker compose build --no-cache frontend
-```
-
-To reset everything, including PostgreSQL data:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
-
-## Production backend
-
-The production Compose stack runs the gateway, backend services, and PostgreSQL databases. The frontend is deployed separately and is not included.
-
-Start the production backend on the VPS:
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
+TripBuddy is an educational diploma project. The repository currently uses the package-level ISC license declarations included with its Node.js services; no separate repository-wide license file is provided.
