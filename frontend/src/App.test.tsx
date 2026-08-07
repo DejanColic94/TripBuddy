@@ -164,6 +164,8 @@ function setAuthenticatedSession() {
 
 beforeEach(() => {
   localStorage.clear();
+  delete document.documentElement.dataset.theme;
+  document.documentElement.style.colorScheme = "";
   window.history.pushState({}, "", "/");
   vi.restoreAllMocks();
 });
@@ -173,6 +175,31 @@ afterEach(() => {
 });
 
 describe("TripBuddy frontend", () => {
+  it("uses the system theme when no preference has been saved", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    mockDefaultApi();
+
+    render(<App />);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("tripbuddy-theme")).toBeNull();
+    expect(screen.getByRole("button", { name: "Switch to light mode" })).toBeInTheDocument();
+  });
+
+  it("persists an explicit theme selection", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("tripbuddy-theme", "dark");
+    mockDefaultApi();
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Switch to light mode" }));
+
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(localStorage.getItem("tripbuddy-theme")).toBe("light");
+    expect(screen.getByRole("button", { name: "Switch to dark mode" })).toBeInTheDocument();
+  });
+
   it("renders login page by default", () => {
     mockDefaultApi();
 

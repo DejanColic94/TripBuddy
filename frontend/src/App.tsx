@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import "./App.css";
+import ThemeToggle from "./components/ThemeToggle";
 import { API_BASE_URL } from "./config/api";
+import { useTheme } from "./hooks/useTheme";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GuestTripPage from "./pages/GuestTripPage";
@@ -72,6 +74,7 @@ function getStoredUser() {
 }
 
 function App() {
+  const { theme, toggleTheme } = useTheme();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(getStoredUser);
   const [isAuthBootstrapping, setIsAuthBootstrapping] = useState(
@@ -257,6 +260,9 @@ function App() {
 
   return (
     <main className="app">
+      <div className="app-toolbar" aria-label="Application settings">
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      </div>
       {isAuthBootstrapping ? (
         <p className="loading-state">Restoring your session...</p>
       ) : guestToken !== null ? (

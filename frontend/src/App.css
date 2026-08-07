@@ -4,6 +4,45 @@
   padding: 40px 0 56px;
 }
 
+.app-toolbar {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-color: #ded6c8;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 22px rgba(31, 41, 51, 0.08);
+  color: #17483c;
+  font-size: 0.86rem;
+}
+
+.theme-toggle:hover {
+  border-color: rgba(37, 109, 90, 0.42);
+  background: #eef7f4;
+}
+
+.theme-toggle:focus-visible {
+  outline: 3px solid rgba(37, 109, 90, 0.28);
+  outline-offset: 2px;
+}
+
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .page {
   display: flex;
   flex-direction: column;
@@ -1516,4 +1555,299 @@ button:disabled {
   .summary-grid {
     grid-template-columns: 1fr;
   }
+}
+
+html[data-theme="dark"] .app {
+  color: #dce7e2;
+}
+
+html[data-theme="dark"] .theme-toggle {
+  border-color: #3a4a44;
+  background: rgba(25, 37, 33, 0.92);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  color: #d9eee6;
+}
+
+html[data-theme="dark"] .theme-toggle:hover {
+  border-color: #4f8f7c;
+  background: #20332d;
+}
+
+html[data-theme="dark"] :where(
+  .brand-panel h1,
+  .page-header h1,
+  .details-hero h1,
+  .auth-card h2,
+  .panel h2,
+  .section-heading h2,
+  .section-heading h3,
+  .trip-content-section-header h2,
+  .summary-card strong,
+  .expense-total-card strong,
+  .trip-card strong,
+  .itinerary-card strong,
+  .expense-card strong,
+  .participant-card strong,
+  .invite-card strong,
+  .current-user strong,
+  label
+) {
+  color: #eef7f3;
+}
+
+html[data-theme="dark"] :where(
+  .brand-panel p:last-child,
+  .page-subtitle,
+  .current-user,
+  .trip-card p,
+  .trip-card-participants p,
+  .trip-info-card p,
+  .trip-content-section-header p,
+  .summary-card p,
+  .weather-method-note,
+  .weather-attribution,
+  .metadata-list dt,
+  .itinerary-card p,
+  .expense-card p,
+  .participant-card p,
+  .invite-card p,
+  .conversion-note,
+  .location-search-empty,
+  .location-attribution,
+  .guest-access-note
+) {
+  color: #aabbb4;
+}
+
+html[data-theme="dark"] :where(.auth-card, .panel, .trip-card) {
+  border-color: #34443e;
+  background: #18231f;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] :where(input, textarea, select) {
+  border-color: #40534c;
+  background: #101916;
+  color: #eef7f3;
+}
+
+html[data-theme="dark"] :where(input, textarea)::placeholder {
+  color: #788a83;
+}
+
+html[data-theme="dark"] :where(input, textarea, select):focus {
+  border-color: #63a992;
+  box-shadow: 0 0 0 3px rgba(99, 169, 146, 0.18);
+}
+
+html[data-theme="dark"] :where(.secondary-button, .link-button) {
+  border-color: #40534c;
+  background: #18231f;
+  color: #d9eee6;
+}
+
+html[data-theme="dark"] :where(.secondary-button, .link-button):hover {
+  background: #263630;
+}
+
+html[data-theme="dark"] :where(.danger-button, .compact-danger-button) {
+  border-color: rgba(255, 132, 120, 0.42);
+  background: #211a18;
+  color: #ff9b91;
+}
+
+html[data-theme="dark"] :where(.danger-button, .compact-danger-button):hover:not(:disabled) {
+  background: rgba(180, 35, 24, 0.2);
+}
+
+html[data-theme="dark"] .location-results {
+  border-color: #40534c;
+  background: #18231f;
+  box-shadow: 0 16px 35px rgba(0, 0, 0, 0.34);
+}
+
+html[data-theme="dark"] .location-results button {
+  color: #dce7e2;
+}
+
+html[data-theme="dark"] :where(
+  .location-results button:hover,
+  .location-results button.active,
+  .location-results button[aria-selected="true"],
+  .contact-search-option:hover,
+  .contact-search-option[aria-pressed="true"]
+) {
+  background: #20352e;
+}
+
+html[data-theme="dark"] :where(.trip-dates span, .guest-name-badge, .itinerary-date, .expense-card span) {
+  border-color: rgba(225, 157, 87, 0.38);
+  background: rgba(194, 119, 56, 0.18);
+  color: #f3c892;
+}
+
+html[data-theme="dark"] :where(
+  .trip-card-participants span,
+  .participant-card span,
+  .invite-card-meta span
+) {
+  border-color: rgba(99, 169, 146, 0.35);
+  background: rgba(99, 169, 146, 0.14);
+  color: #bce4d7;
+}
+
+html[data-theme="dark"] .empty-state {
+  border-color: rgba(225, 157, 87, 0.38);
+  background: rgba(53, 44, 32, 0.72);
+  color: #b7aaa0;
+}
+
+html[data-theme="dark"] .loading-state {
+  border-color: #34443e;
+  background: #18231f;
+  color: #d9eee6;
+}
+
+html[data-theme="dark"] .details-hero {
+  border-color: #3a4a44;
+  background:
+    linear-gradient(135deg, rgba(29, 44, 39, 0.96), rgba(35, 43, 34, 0.92)),
+    #18231f;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .trip-section-nav {
+  border-color: #3a4a44;
+  background: rgba(24, 35, 31, 0.92);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .trip-section-nav a {
+  color: #b8d8cd;
+}
+
+html[data-theme="dark"] :where(.trip-section-nav a:hover, .trip-section-nav a:focus-visible) {
+  background: #20352e;
+  color: #eef7f3;
+}
+
+html[data-theme="dark"] .trip-content-section {
+  border-color: #3a4a44;
+  border-left-color: var(--section-accent);
+  background: rgba(18, 29, 25, 0.82);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .trip-content-section-header {
+  border-bottom-color: #34443e;
+}
+
+html[data-theme="dark"] .trip-role-badge {
+  border-color: rgba(99, 169, 146, 0.35);
+  background: rgba(99, 169, 146, 0.14);
+  color: #c4e8dc;
+}
+
+html[data-theme="dark"] .trip-role-user {
+  border-color: rgba(225, 157, 87, 0.38);
+  background: rgba(194, 119, 56, 0.18);
+  color: #f3c892;
+}
+
+html[data-theme="dark"] .trip-role-guest {
+  border-color: #4a5b55;
+  background: rgba(107, 114, 128, 0.16);
+  color: #c5d0cc;
+}
+
+html[data-theme="dark"] :where(
+  .summary-card,
+  .itinerary-card,
+  .expense-card,
+  .participant-card,
+  .invite-card
+) {
+  border-color: #34443e;
+  background: #18231f;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .weather-card {
+  border-color: #385048;
+  background: linear-gradient(155deg, #18231f 0%, #1c2c27 100%);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .weather-card--sunny {
+  background: linear-gradient(155deg, #24231b 0%, #393016 100%);
+}
+
+html[data-theme="dark"] .weather-card--rainy {
+  background: linear-gradient(155deg, #152229 0%, #1a3342 100%);
+}
+
+html[data-theme="dark"] .weather-card--cloudy {
+  background: linear-gradient(155deg, #1b2325 0%, #2a3235 100%);
+}
+
+html[data-theme="dark"] .weather-card--snowy {
+  background: linear-gradient(155deg, #182629 0%, #234047 100%);
+}
+
+html[data-theme="dark"] .weather-card--stormy {
+  background: linear-gradient(155deg, #211e29 0%, #342b42 100%);
+}
+
+html[data-theme="dark"] .weather-card--climate {
+  background: linear-gradient(155deg, #262018 0%, #3a2b1c 100%);
+}
+
+html[data-theme="dark"] .weather-source--forecast {
+  background: rgba(65, 140, 116, 0.24);
+  color: #a8ddcc;
+}
+
+html[data-theme="dark"] .weather-source--climate {
+  background: rgba(194, 119, 56, 0.22);
+  color: #f0bf87;
+}
+
+html[data-theme="dark"] .weather-attribution a {
+  color: #9bcbbb;
+}
+
+html[data-theme="dark"] .metadata-list div {
+  border-color: #34443e;
+  background: #111b18;
+}
+
+html[data-theme="dark"] .metadata-list dd {
+  color: #dce7e2;
+}
+
+html[data-theme="dark"] .contact-search-option {
+  border-color: #40534c;
+  background: #111b18;
+  color: #dce7e2;
+}
+
+html[data-theme="dark"] .contact-search-option span {
+  color: #9fb1aa;
+}
+
+html[data-theme="dark"] .expense-total-card {
+  border-color: rgba(99, 169, 146, 0.3);
+  background:
+    linear-gradient(135deg, rgba(24, 35, 31, 0.98), rgba(39, 47, 37, 0.94)),
+    #18231f;
+}
+
+html[data-theme="dark"] .error {
+  background: rgba(180, 35, 24, 0.2);
+  color: #ff9b91;
+}
+
+html[data-theme="dark"] .success {
+  background: rgba(38, 150, 96, 0.18);
+  color: #84d8ae;
 }
