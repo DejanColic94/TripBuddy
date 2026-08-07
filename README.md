@@ -23,15 +23,15 @@ The application is deployed as a React frontend and a containerized microservice
 
 ## System components
 
-| Component | Technology | Responsibility |
-| --- | --- | --- |
-| Frontend | React, TypeScript, Vite | User interface, client state, localization, themes |
-| Gateway | Express, TypeScript | Public backend entry point, routing, CORS, rate limits |
-| Identity Service | Express, PostgreSQL | Accounts, credentials, JWTs, verification and reset flows |
-| Trip Service | Express, PostgreSQL | Trips, roles, contacts, invitations, guests, itineraries, expenses |
-| Integration Service | Express, Axios | Locations, weather/climate data, exchange rates |
-| Identity DB | PostgreSQL 16 | Identity-owned tables |
-| Trip DB | PostgreSQL 16 | Trip-domain tables |
+| Component           | Technology              | Responsibility                                                     |
+| ------------------- | ----------------------- | ------------------------------------------------------------------ |
+| Frontend            | React, TypeScript, Vite | User interface, client state, localization, themes                 |
+| Gateway             | Express, TypeScript     | Public backend entry point, routing, CORS, rate limits             |
+| Identity Service    | Express, PostgreSQL     | Accounts, credentials, JWTs, verification and reset flows          |
+| Trip Service        | Express, PostgreSQL     | Trips, roles, contacts, invitations, guests, itineraries, expenses |
+| Integration Service | Express, Axios          | Locations, weather/climate data, exchange rates                    |
+| Identity DB         | PostgreSQL 16           | Identity-owned tables                                              |
+| Trip DB             | PostgreSQL 16           | Trip-domain tables                                                 |
 
 ## External services
 
@@ -61,15 +61,15 @@ docker compose up --build
 
 Local endpoints:
 
-| Component | URL |
-| --- | --- |
-| Frontend | `http://localhost:5173` |
-| Gateway | `http://localhost:4000` |
-| Identity Service | `http://localhost:4001` |
-| Trip Service | `http://localhost:4002` |
+| Component           | URL                     |
+| ------------------- | ----------------------- |
+| Frontend            | `http://localhost:5173` |
+| Gateway             | `http://localhost:4000` |
+| Identity Service    | `http://localhost:4001` |
+| Trip Service        | `http://localhost:4002` |
 | Integration Service | `http://localhost:4003` |
-| Identity PostgreSQL | `localhost:5435` |
-| Trip PostgreSQL | `localhost:5436` |
+| Identity PostgreSQL | `localhost:5435`        |
+| Trip PostgreSQL     | `localhost:5436`        |
 
 Stop the stack without deleting database data:
 
@@ -105,7 +105,6 @@ TripBuddy/
 - [User guide](docs/USER_GUIDE.md)
 - [Security notes](docs/SECURITY.md)
 - [Frontend guide](frontend/README.md)
-- [Changelog](CHANGELOG.md)
 
 ## Testing
 
