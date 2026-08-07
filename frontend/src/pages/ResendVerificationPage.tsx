@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 
 type Props = { email: string; onBackToLogin: () => void };
 
 function ResendVerificationPage({ email, onBackToLogin }: Props) {
-  const [message, setMessage] = useState("Verify your email before logging in.");
+  const { t } = useTranslation();
+  const [message, setMessage] = useState(() => t("auth.verificationRequired"));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const resend = async () => {
@@ -18,11 +20,11 @@ function ResendVerificationPage({ email, onBackToLogin }: Props) {
       const data = (await response.json()) as { message?: string };
       setMessage(
         response.ok
-          ? data.message || "Verification link requested"
-          : data.message || "Failed to request verification"
+          ? data.message || t("auth.verificationRequested")
+          : data.message || t("auth.verificationRequestFailed")
       );
     } catch {
-      setMessage("Failed to request verification");
+      setMessage(t("auth.verificationRequestFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -30,14 +32,14 @@ function ResendVerificationPage({ email, onBackToLogin }: Props) {
 
   return (
     <section className="page auth-card">
-      <p className="eyebrow">Account verification</p>
-      <h2>Check your email</h2>
+      <p className="eyebrow">{t("auth.accountVerification")}</p>
+      <h2>{t("auth.checkEmail")}</h2>
       <p>{message}</p>
       <button className="primary-button" type="button" onClick={resend} disabled={isSubmitting}>
-        {isSubmitting ? "Sending..." : "Resend verification email"}
+        {isSubmitting ? t("auth.sending") : t("auth.resendVerification")}
       </button>
       <button className="link-button auth-switch" type="button" onClick={onBackToLogin}>
-        Back to login
+        {t("common.backToLogin")}
       </button>
     </section>
   );

@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 
 type Props = { verificationToken: string; onBackToLogin: (notice?: string) => void };
 
 function VerifyEmailPage({ verificationToken, onBackToLogin }: Props) {
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const { t } = useTranslation();
+  const hasVerificationToken = Boolean(verificationToken.trim());
+  const [error, setError] = useState(() => hasVerificationToken ? "" : t("auth.invalidVerificationLink"));
+  const [isLoading, setIsLoading] = useState(hasVerificationToken);
 
   useEffect(() => {
     let active = true;
@@ -21,39 +24,36 @@ function VerifyEmailPage({ verificationToken, onBackToLogin }: Props) {
 
         if (!active) return;
         if (!response.ok) {
-          setError(data.message || "Failed to verify email");
+          setError(data.message || t("auth.verificationFailed"));
           setIsLoading(false);
           return;
         }
-        onBackToLogin("Email verified successfully. You can now log in.");
+        onBackToLogin(t("auth.verificationSuccess"));
       } catch {
         if (active) {
-          setError("Failed to verify email");
+          setError(t("auth.verificationFailed"));
           setIsLoading(false);
         }
       }
     }
 
-    if (!verificationToken.trim()) {
-      setError("Verification link is invalid or has expired");
-      setIsLoading(false);
-    } else {
+    if (verificationToken.trim()) {
       void verify();
     }
     return () => {
       active = false;
     };
-  }, [onBackToLogin, verificationToken]);
+  }, [onBackToLogin, t, verificationToken]);
 
   return (
     <section className="page auth-card">
-      <p className="eyebrow">Account verification</p>
-      <h2>Verify email</h2>
-      {isLoading ? <p className="loading-state">Verifying your email...</p> : null}
+      <p className="eyebrow">{t("auth.accountVerification")}</p>
+      <h2>{t("auth.verifyEmail")}</h2>
+      {isLoading ? <p className="loading-state">{t("auth.verifyingEmail")}</p> : null}
       {error ? <p className="error">{error}</p> : null}
       {error ? (
         <button className="secondary-button" type="button" onClick={() => onBackToLogin()}>
-          Back to login
+          {t("common.backToLogin")}
         </button>
       ) : null}
     </section>
