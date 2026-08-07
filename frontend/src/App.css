@@ -6,10 +6,47 @@
 
 .app-toolbar {
   display: flex;
+  gap: 10px;
   min-height: 42px;
   align-items: center;
   justify-content: flex-end;
   margin-bottom: 16px;
+}
+
+.language-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid #ded6c8;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 22px rgba(31, 41, 51, 0.08);
+}
+
+.language-toggle button {
+  min-width: 40px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: #5f6f68;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.language-toggle button:hover {
+  background: #eef7f4;
+  color: #17483c;
+}
+
+.language-toggle button.is-active {
+  background: #256d5a;
+  color: #fff;
+}
+
+.language-toggle button:focus-visible {
+  outline: 3px solid rgba(37, 109, 90, 0.28);
+  outline-offset: 2px;
 }
 
 .theme-toggle {
@@ -1566,6 +1603,26 @@ html[data-theme="dark"] .theme-toggle {
   background: rgba(25, 37, 33, 0.92);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
   color: #d9eee6;
+}
+
+html[data-theme="dark"] .language-toggle {
+  border-color: #3a4a44;
+  background: rgba(25, 37, 33, 0.92);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .language-toggle button {
+  color: #aebdb7;
+}
+
+html[data-theme="dark"] .language-toggle button:hover {
+  background: #20332d;
+  color: #d9eee6;
+}
+
+html[data-theme="dark"] .language-toggle button.is-active {
+  background: #4f9a83;
+  color: #0b1713;
 }
 
 html[data-theme="dark"] .theme-toggle:hover {

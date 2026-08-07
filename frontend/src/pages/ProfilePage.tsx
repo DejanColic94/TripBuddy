@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 import type { AuthUser } from "../types/auth";
 
@@ -21,6 +22,7 @@ function ProfilePage({
   onUnauthorized,
   onUserUpdated,
 }: ProfilePageProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState(currentUser.name);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -40,12 +42,12 @@ function ProfilePage({
     const normalizedName = name.trim();
 
     if (!normalizedName) {
-      setError("Name is required");
+      setError(t("validation.nameRequired"));
       return;
     }
 
     if (normalizedName.length > 255) {
-      setError("Name must be 255 characters or fewer");
+      setError(t("validation.nameTooLong"));
       return;
     }
 
@@ -75,16 +77,16 @@ function ProfilePage({
         typeof data.token !== "string"
       ) {
         setError(
-          ("message" in data && data.message) || "Failed to update profile"
+          ("message" in data && data.message) || t("profile.updateFailed")
         );
         return;
       }
 
       setName(data.user.name);
       onUserUpdated(data.token, data.user);
-      setSuccessMessage("Profile updated");
+      setSuccessMessage(t("profile.updated"));
     } catch {
-      setError("Failed to update profile");
+      setError(t("profile.updateFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -96,22 +98,22 @@ function ProfilePage({
     setPasswordSuccessMessage("");
 
     if (!passwordCurrent) {
-      setPasswordError("Current password is required");
+      setPasswordError(t("validation.currentPasswordRequired"));
       return;
     }
 
     if (newPassword.length < 8) {
-      setPasswordError("New password must be at least 8 characters");
+      setPasswordError(t("auth.newPasswordMin"));
       return;
     }
 
     if (new TextEncoder().encode(newPassword).length > 72) {
-      setPasswordError("New password must be 72 bytes or fewer");
+      setPasswordError(t("auth.newPasswordMaxBytes"));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordError("New passwords do not match");
+      setPasswordError(t("auth.newPasswordsMismatch"));
       return;
     }
 
@@ -138,16 +140,16 @@ function ProfilePage({
       const data = (await response.json()) as { message?: string };
 
       if (!response.ok) {
-        setPasswordError(data.message || "Failed to update password");
+        setPasswordError(data.message || t("profile.passwordUpdateFailed"));
         return;
       }
 
       setPasswordCurrent("");
       setNewPassword("");
       setConfirmPassword("");
-      setPasswordSuccessMessage("Password updated");
+      setPasswordSuccessMessage(t("profile.passwordUpdated"));
     } catch {
-      setPasswordError("Failed to update password");
+      setPasswordError(t("profile.passwordUpdateFailed"));
     } finally {
       setIsPasswordSubmitting(false);
     }
@@ -157,22 +159,22 @@ function ProfilePage({
     <section className="page profile-page">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Your account</p>
-          <h1>My Profile</h1>
-          <p className="page-subtitle">Keep your TripBuddy identity up to date.</p>
+          <p className="eyebrow">{t("profile.eyebrow")}</p>
+          <h1>{t("profile.title")}</h1>
+          <p className="page-subtitle">{t("profile.subtitle")}</p>
         </div>
         <button className="secondary-button" type="button" onClick={onBack}>
-          Back to trips
+          {t("common.backToTrips")}
         </button>
       </div>
 
       <section className="panel profile-card">
-        <h2>Profile details</h2>
-        <p className="page-subtitle">Edit the name other travelers see.</p>
+        <h2>{t("profile.details")}</h2>
+        <p className="page-subtitle">{t("profile.detailsDescription")}</p>
 
         <form className="form-stack" onSubmit={handleSubmit}>
           <label>
-            Name
+            {t("common.name")}
             <input
               value={name}
               maxLength={255}
@@ -182,34 +184,32 @@ function ProfilePage({
           </label>
 
           <label>
-            Email
+            {t("common.email")}
             <input
-              aria-label="Email"
+              aria-label={t("common.email")}
               value={currentUser.email}
               readOnly
               aria-readonly="true"
             />
-            <small>Your email is your permanent sign-in identifier.</small>
+            <small>{t("profile.permanentEmail")}</small>
           </label>
 
           {error ? <p className="error">{error}</p> : null}
           {successMessage ? <p className="success">{successMessage}</p> : null}
 
           <button className="primary-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Saving..." : "Save profile"}
+            {isSubmitting ? t("common.saving") : t("profile.save")}
           </button>
         </form>
       </section>
 
       <section className="panel profile-card">
-        <h2>Change password</h2>
-        <p className="page-subtitle">
-          Use at least 8 characters and confirm your current password.
-        </p>
+        <h2>{t("profile.changePassword")}</h2>
+        <p className="page-subtitle">{t("profile.passwordRules")}</p>
 
         <form className="form-stack" onSubmit={handlePasswordSubmit}>
           <label>
-            Current password for password change
+            {t("profile.currentPasswordForChange")}
             <input
               type="password"
               value={passwordCurrent}
@@ -220,7 +220,7 @@ function ProfilePage({
           </label>
 
           <label>
-            New password
+            {t("auth.newPassword")}
             <input
               type="password"
               value={newPassword}
@@ -232,7 +232,7 @@ function ProfilePage({
           </label>
 
           <label>
-            Confirm new password
+            {t("auth.confirmNewPassword")}
             <input
               type="password"
               value={confirmPassword}
@@ -253,7 +253,7 @@ function ProfilePage({
             type="submit"
             disabled={isPasswordSubmitting}
           >
-            {isPasswordSubmitting ? "Changing password..." : "Change password"}
+            {isPasswordSubmitting ? t("profile.changingPassword") : t("profile.changePassword")}
           </button>
         </form>
       </section>

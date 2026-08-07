@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 
 type ForgotPasswordPageProps = {
@@ -6,6 +7,7 @@ type ForgotPasswordPageProps = {
 };
 
 function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPageProps) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -28,16 +30,16 @@ function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPageProps) {
       const data = (await response.json()) as { message?: string };
 
       if (!response.ok) {
-        setError(data.message || "Failed to request password reset");
+        setError(data.message || t("auth.resetRequestFailed"));
         return;
       }
 
       setSuccessMessage(
         data.message ||
-          "If an account exists for that email, a reset link has been sent"
+          t("auth.resetRequestSuccess")
       );
     } catch {
-      setError("Failed to request password reset");
+      setError(t("auth.resetRequestFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -46,14 +48,14 @@ function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPageProps) {
   return (
     <section className="page auth-card">
       <div>
-        <p className="eyebrow">Account recovery</p>
-        <h2>Forgot password</h2>
-        <p>Enter your email and we’ll send a reset link if an account exists.</p>
+        <p className="eyebrow">{t("auth.accountRecovery")}</p>
+        <h2>{t("auth.forgotPasswordTitle")}</h2>
+        <p>{t("auth.forgotPasswordDescription")}</p>
       </div>
 
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
-          Email
+          {t("common.email")}
           <input
             type="email"
             value={email}
@@ -64,7 +66,7 @@ function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPageProps) {
         </label>
 
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Sending..." : "Send reset link"}
+          {isSubmitting ? t("auth.sending") : t("auth.sendResetLink")}
         </button>
       </form>
 
@@ -72,7 +74,7 @@ function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPageProps) {
       {successMessage ? <p className="success">{successMessage}</p> : null}
 
       <button className="link-button auth-switch" type="button" onClick={onBackToLogin}>
-        Back to login
+        {t("common.backToLogin")}
       </button>
     </section>
   );

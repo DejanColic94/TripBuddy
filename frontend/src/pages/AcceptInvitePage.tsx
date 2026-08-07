@@ -1,4 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   ApiRequestError,
   acceptTripInvite,
@@ -23,30 +25,30 @@ type InviteStatus =
   | { kind: "success"; invite: AcceptTripInviteResponse }
   | { kind: "error"; status: number; message: string };
 
-function getInviteErrorTitle(status: number, message: string) {
-  if (status === 401) return "Login required for invited email";
+function getInviteErrorTitle(status: number, message: string, t: TFunction) {
+  if (status === 401) return t("invite.errors.loginRequired");
   if (status === 403 && message === "Invite belongs to a different email") {
-    return "Signed into a different account";
+    return t("invite.errors.wrongAccount");
   }
-  if (status === 404) return "Invitation not found";
-  if (status === 409) return "Invitation already accepted";
-  if (status === 410) return "Invitation expired";
-  if (status === 502) return "Invitation service is temporarily unavailable";
-  return "Unable to accept invitation";
+  if (status === 404) return t("invite.errors.notFound");
+  if (status === 409) return t("invite.errors.alreadyAccepted");
+  if (status === 410) return t("invite.errors.expired");
+  if (status === 502) return t("invite.errors.unavailable");
+  return t("invite.errors.unable");
 }
 
-function getInviteErrorMessage(status: number, message: string) {
+function getInviteErrorMessage(status: number, message: string, t: TFunction) {
   if (status === 401) {
-    return "An account now exists for this email. Log in with that account to accept the invitation.";
+    return t("invite.errors.loginRequiredDetail");
   }
   if (status === 403 && message === "Invite belongs to a different email") {
-    return "This invitation was sent to a different email address. Log in with the invited account.";
+    return t("invite.errors.wrongAccountDetail");
   }
-  if (status === 404) return "The link is invalid or no longer available.";
-  if (status === 409) return "This invitation has already been used.";
-  if (status === 410) return "Ask the trip owner to send you a new invitation.";
-  if (status === 502) return "Please try again in a moment.";
-  return message || "Something went wrong while processing this invitation.";
+  if (status === 404) return t("invite.errors.notFoundDetail");
+  if (status === 409) return t("invite.errors.alreadyAcceptedDetail");
+  if (status === 410) return t("invite.errors.expiredDetail");
+  if (status === 502) return t("invite.errors.unavailableDetail");
+  return message || t("invite.errors.genericDetail");
 }
 
 function AcceptInvitePage({
@@ -57,6 +59,7 @@ function AcceptInvitePage({
   onOpenTrip,
   onOpenGuestTrip,
 }: AcceptInvitePageProps) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<InviteStatus>({ kind: "loading" });
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -72,7 +75,7 @@ function AcceptInvitePage({
 
     async function loadPreview() {
       if (!trimmedInviteToken) {
-        setStatus({ kind: "error", status: 400, message: "Invalid invitation link" });
+        setStatus({ kind: "error", status: 400, message: t("invite.errors.invalid") });
         return;
       }
 
@@ -85,7 +88,7 @@ function AcceptInvitePage({
         if (error instanceof ApiRequestError) {
           setStatus({ kind: "error", status: error.status, message: error.error });
         } else {
-          setStatus({ kind: "error", status: 500, message: "Failed to load invitation" });
+          setStatus({ kind: "error", status: 500, message: t("invite.errors.loadFailed") });
         }
       }
     }
@@ -94,7 +97,7 @@ function AcceptInvitePage({
     return () => {
       active = false;
     };
-  }, [trimmedInviteToken]);
+  }, [t, trimmedInviteToken]);
 
   const accept = async (account?: { name: string; password: string }) => {
     setFormError("");
@@ -110,7 +113,7 @@ function AcceptInvitePage({
       if (error instanceof ApiRequestError) {
         setStatus({ kind: "error", status: error.status, message: error.error });
       } else {
-        setStatus({ kind: "error", status: 500, message: "Failed to accept invitation" });
+        setStatus({ kind: "error", status: 500, message: t("invite.errors.acceptFailed") });
       }
     } finally {
       setIsSubmitting(false);
@@ -122,23 +125,23 @@ function AcceptInvitePage({
     const normalizedName = name.trim();
 
     if (!normalizedName) {
-      setFormError("Name is required");
+      setFormError(t("validation.nameRequired"));
       return;
     }
     if (normalizedName.length > 255) {
-      setFormError("Name must be 255 characters or fewer");
+      setFormError(t("validation.nameTooLong"));
       return;
     }
     if (password.length < 8) {
-      setFormError("Password must be at least 8 characters");
+      setFormError(t("validation.passwordMin"));
       return;
     }
     if (new TextEncoder().encode(password).length > 72) {
-      setFormError("Password must be 72 bytes or fewer");
+      setFormError(t("validation.passwordMaxBytes"));
       return;
     }
     if (password !== confirmPassword) {
-      setFormError("Passwords do not match");
+      setFormError(t("validation.passwordsMismatch"));
       return;
     }
 
@@ -149,7 +152,7 @@ function AcceptInvitePage({
     event.preventDefault();
     const normalizedName = guestName.trim();
     if (!normalizedName) {
-      setFormError("Display name is required");
+      setFormError(t("invite.displayNameRequired"));
       return;
     }
     setFormError("");
@@ -161,7 +164,7 @@ function AcceptInvitePage({
       if (error instanceof ApiRequestError) {
         setStatus({ kind: "error", status: error.status, message: error.error });
       } else {
-        setStatus({ kind: "error", status: 500, message: "Failed to continue as guest" });
+        setStatus({ kind: "error", status: 500, message: t("invite.errors.guestFailed") });
       }
     } finally {
       setIsSubmitting(false);
@@ -172,25 +175,25 @@ function AcceptInvitePage({
     <section className="page invite-accept-page">
       <div className="auth-layout">
         <div className="brand-panel">
-          <p className="eyebrow">TripBuddy invite</p>
-          <h1>Join the trip.</h1>
-          <p>Review the invitation, then choose how you want to continue.</p>
+          <p className="eyebrow">{t("invite.eyebrow")}</p>
+          <h1>{t("invite.title")}</h1>
+          <p>{t("invite.subtitle")}</p>
         </div>
 
         <section className="auth-card invite-accept-card">
-          <h2>Trip invitation</h2>
+          <h2>{t("invite.invitation")}</h2>
 
           {status.kind === "loading" ? (
-            <p className="loading-state">Loading your invitation...</p>
+            <p className="loading-state">{t("invite.loading")}</p>
           ) : null}
 
           {status.kind === "ready" ? (
             <>
               <div className="invite-summary">
                 <strong>{status.invite.tripName}</strong>
-                <p>Invited by {status.invite.inviterName}</p>
-                <p>Invited email: {status.invite.email}</p>
-                <p>Trip role: {status.invite.role}</p>
+                <p>{t("invite.invitedBy", { name: status.invite.inviterName })}</p>
+                <p>{t("invite.invitedEmail", { email: status.invite.email })}</p>
+                <p>{t("invite.tripRole", { role: t(`roles.${status.invite.role}`) })}</p>
               </div>
 
               {token ? (
@@ -200,24 +203,24 @@ function AcceptInvitePage({
                   disabled={isSubmitting}
                   onClick={() => void accept()}
                 >
-                  {isSubmitting ? "Accepting..." : "Accept invitation"}
+                  {isSubmitting ? t("invite.accepting") : t("invite.accept")}
                 </button>
               ) : status.invite.accountExists ? (
                 <>
-                  <p>An account already exists for this email.</p>
+                  <p>{t("invite.accountExists")}</p>
                   <button
                     className="primary-button"
                     type="button"
                     onClick={() => onGoToLogin(currentInvitePath)}
                   >
-                    Log in to accept invitation
+                    {t("invite.loginToAccept")}
                   </button>
                 </>
               ) : (
                 <form className="form-stack" onSubmit={handleCreateAccount}>
-                  <p>Create your account to join this trip.</p>
+                  <p>{t("invite.createAccountDescription")}</p>
                   <label>
-                    Name
+                    {t("common.name")}
                     <input
                       value={name}
                       onChange={(event) => setName(event.target.value)}
@@ -227,11 +230,11 @@ function AcceptInvitePage({
                     />
                   </label>
                   <label>
-                    Email
+                    {t("common.email")}
                     <input value={status.invite.email} readOnly />
                   </label>
                   <label>
-                    Password
+                    {t("common.password")}
                     <input
                       type="password"
                       value={password}
@@ -242,7 +245,7 @@ function AcceptInvitePage({
                     />
                   </label>
                   <label>
-                    Confirm password
+                    {t("auth.confirmPassword")}
                     <input
                       type="password"
                       value={confirmPassword}
@@ -254,15 +257,15 @@ function AcceptInvitePage({
                   </label>
                   {formError ? <p className="error">{formError}</p> : null}
                   <button className="primary-button" type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Creating account..." : "Create account and join"}
+                    {isSubmitting ? t("invite.creatingAccount") : t("invite.createAndJoin")}
                   </button>
                 </form>
               )}
               {!token && !status.invite.accountExists ? (
                 <form className="form-stack" onSubmit={handleGuestSubmit}>
-                  <p>Or continue with read-only guest access.</p>
+                  <p>{t("invite.guestDescription")}</p>
                   <label>
-                    Guest display name
+                    {t("invite.guestDisplayName")}
                     <input
                       value={guestName}
                       onChange={(event) => setGuestName(event.target.value)}
@@ -272,7 +275,7 @@ function AcceptInvitePage({
                   </label>
                   {formError ? <p className="error">{formError}</p> : null}
                   <button className="secondary-button" type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Opening trip..." : "Continue as guest"}
+                    {isSubmitting ? t("invite.openingTrip") : t("invite.continueAsGuest")}
                   </button>
                 </form>
               ) : null}
@@ -284,10 +287,10 @@ function AcceptInvitePage({
               <div className="success">
                 <strong>
                   {status.invite.accountCreated
-                    ? "Account created and invitation accepted"
-                    : "Invitation accepted"}
+                    ? t("invite.accountCreatedAndAccepted")
+                    : t("invite.accepted")}
                 </strong>
-                <p>This trip is now connected to your account.</p>
+                <p>{t("invite.connected")}</p>
               </div>
               <button
                 className="primary-button"
@@ -298,7 +301,7 @@ function AcceptInvitePage({
                     : () => onOpenTrip(status.invite.tripId)
                 }
               >
-                {status.invite.accountCreated ? "Log in and open trip" : "Open accepted trip"}
+                {status.invite.accountCreated ? t("invite.loginAndOpen") : t("invite.openAccepted")}
               </button>
             </>
           ) : null}
@@ -306,8 +309,8 @@ function AcceptInvitePage({
           {status.kind === "error" ? (
             <>
               <div className="error">
-                <strong>{getInviteErrorTitle(status.status, status.message)}</strong>
-                <p>{getInviteErrorMessage(status.status, status.message)}</p>
+                <strong>{getInviteErrorTitle(status.status, status.message, t)}</strong>
+                <p>{getInviteErrorMessage(status.status, status.message, t)}</p>
               </div>
               {status.status === 401 || status.status === 403 ? (
                 <button
@@ -315,11 +318,11 @@ function AcceptInvitePage({
                   type="button"
                   onClick={() => onGoToLogin(currentInvitePath)}
                 >
-                  Log in with invited account
+                  {t("invite.loginWithInvitedAccount")}
                 </button>
               ) : (
                 <button className="secondary-button" type="button" onClick={onBackToTrips}>
-                  Back to home
+                  {t("common.backToHome")}
                 </button>
               )}
             </>

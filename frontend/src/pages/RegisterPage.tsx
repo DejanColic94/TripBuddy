@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 
 type RegisterPageProps = {
@@ -14,6 +15,7 @@ function RegisterPage({
   onBackToLogin,
   onRegistrationSuccess,
 }: RegisterPageProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,27 +33,27 @@ function RegisterPage({
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedName) {
-      setError("Name is required");
+      setError(t("validation.nameRequired"));
       return;
     }
 
     if (normalizedName.length > 255) {
-      setError("Name must be 255 characters or fewer");
+      setError(t("validation.nameTooLong"));
       return;
     }
 
     if (password.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(t("validation.passwordMin"));
       return;
     }
 
     if (new TextEncoder().encode(password).length > 72) {
-      setError("Password must be 72 bytes or fewer");
+      setError(t("validation.passwordMaxBytes"));
       return;
     }
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("validation.passwordsMismatch"));
       return;
     }
 
@@ -73,7 +75,7 @@ function RegisterPage({
       const data = (await response.json()) as RegisterResponse;
 
       if (!response.ok) {
-        setError(data.message ?? "Registration failed");
+        setError(data.message ?? t("auth.registrationFailed"));
         return;
       }
 
@@ -82,11 +84,11 @@ function RegisterPage({
       setPassword("");
       setConfirmPassword("");
       const successMessage =
-        data.message ?? "Registration successful. You can now log in.";
+        data.message ?? t("auth.registrationSuccess");
       setSuccess(successMessage);
       onRegistrationSuccess(successMessage);
     } catch {
-      setError("Registration failed");
+      setError(t("auth.registrationFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -95,13 +97,13 @@ function RegisterPage({
   return (
     <section className="page auth-card">
       <div>
-        <p className="eyebrow">Start planning</p>
-        <h2>Register</h2>
+        <p className="eyebrow">{t("auth.startPlanning")}</p>
+        <h2>{t("auth.register")}</h2>
       </div>
 
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
-          Name
+          {t("common.name")}
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -112,7 +114,7 @@ function RegisterPage({
         </label>
 
         <label>
-          Email
+          {t("common.email")}
           <input
             type="email"
             value={email}
@@ -124,7 +126,7 @@ function RegisterPage({
         </label>
 
         <label>
-          Password
+          {t("common.password")}
           <input
             type="password"
             value={password}
@@ -136,7 +138,7 @@ function RegisterPage({
         </label>
 
         <label>
-          Confirm password
+          {t("auth.confirmPassword")}
           <input
             type="password"
             value={confirmPassword}
@@ -148,7 +150,7 @@ function RegisterPage({
         </label>
 
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Registering..." : "Register"}
+          {isSubmitting ? t("auth.registering") : t("auth.register")}
         </button>
       </form>
 
@@ -156,7 +158,7 @@ function RegisterPage({
       {success ? <p className="success">{success}</p> : null}
 
       <button className="link-button" type="button" onClick={onBackToLogin}>
-        Back to login
+        {t("common.backToLogin")}
       </button>
     </section>
   );

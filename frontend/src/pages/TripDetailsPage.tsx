@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   createTripInvite,
   fetchTripInvites,
@@ -8,6 +9,7 @@ import LocationAutocomplete from "../components/LocationAutocomplete";
 import { API_BASE_URL } from "../config/api";
 import WeatherForecast from "../components/WeatherForecast";
 import { useExpenseConversion } from "../hooks/useExpenseConversion";
+import { getFormattingLocale } from "../i18n";
 import type { LocationSearchResult } from "../types/location";
 import {
   formatTripDate,
@@ -74,9 +76,9 @@ function getInviteAcceptedAt(invite: TripInvite) {
   return invite.acceptedAt ?? invite.accepted_at ?? null;
 }
 
-const formatExpenseAmount = (amount: number, currency: string) => {
+const formatExpenseAmount = (amount: number, currency: string, locale: string) => {
   try {
-    return new Intl.NumberFormat("en", {
+    return new Intl.NumberFormat(locale, {
       style: "currency",
       currency,
     }).format(amount);
@@ -85,16 +87,7 @@ const formatExpenseAmount = (amount: number, currency: string) => {
   }
 };
 
-const supportedCurrencies = [
-  { code: "EUR", name: "Euro" },
-  { code: "USD", name: "US dollar" },
-  { code: "GBP", name: "British pound" },
-  { code: "CHF", name: "Swiss franc" },
-  { code: "RSD", name: "Serbian dinar" },
-  { code: "CAD", name: "Canadian dollar" },
-  { code: "AUD", name: "Australian dollar" },
-  { code: "JPY", name: "Japanese yen" },
-] as const;
+const supportedCurrencies = ["EUR", "USD", "GBP", "CHF", "RSD", "CAD", "AUD", "JPY"] as const;
 
 function locationFromTrip(trip: Trip): LocationSearchResult | null {
   if (
@@ -128,6 +121,8 @@ function TripDetailsPage({
   onTripDeleted,
   onUnauthorized,
 }: TripDetailsPageProps) {
+  const { i18n, t } = useTranslation();
+  const formattingLocale = getFormattingLocale(i18n.resolvedLanguage);
   const canManage = tripRole === "admin";
   const canContribute = canManage || tripRole === "user";
   const [summary, setSummary] = useState<TripSummary | null>(null);
@@ -187,7 +182,7 @@ function TripDetailsPage({
   const [expenseSuccessMessage, setExpenseSuccessMessage] = useState("");
   const creatorName =
     participants.find((participant) => participant.userId === currentTrip.createdBy)?.name?.trim() ||
-    "Trip owner";
+    t("details.tripOwner");
 
   const {
     convertedTotal: convertedExpenseTotal,
@@ -252,17 +247,17 @@ function TripDetailsPage({
       const data = (await response.json()) as TripSummary | { error?: string };
 
       if (!response.ok || !("itineraryCount" in data)) {
-        setSummaryError(("error" in data && data.error) || "Failed to load trip summary");
+        setSummaryError(("error" in data && data.error) || t("details.messages.summaryLoadFailed"));
         return;
       }
 
       setSummary(data);
     } catch {
-      setSummaryError("Failed to load trip summary");
+      setSummaryError(t("details.messages.summaryLoadFailed"));
     } finally {
       setIsSummaryLoading(false);
     }
-  }, [onUnauthorized, token, trip.id]);
+  }, [onUnauthorized, t, token, trip.id]);
 
   const loadParticipants = useCallback(async () => {
     setParticipantError("");
@@ -276,7 +271,7 @@ function TripDetailsPage({
       });
 
       if (response.status === 401) {
-        setParticipantError("Unauthorized");
+        setParticipantError(t("details.messages.unauthorized"));
         onUnauthorized();
         return;
       }
@@ -284,7 +279,7 @@ function TripDetailsPage({
       const data = (await response.json()) as TripParticipant[] | { error?: string };
 
       if (!response.ok || !Array.isArray(data)) {
-        setParticipantError(("error" in data && data.error) || "Failed to load participants");
+        setParticipantError(("error" in data && data.error) || t("details.messages.participantsLoadFailed"));
         return;
       }
 
@@ -294,11 +289,11 @@ function TripDetailsPage({
         return updatedTrip;
       });
     } catch {
-      setParticipantError("Failed to load participants");
+      setParticipantError(t("details.messages.participantsLoadFailed"));
     } finally {
       setIsParticipantsLoading(false);
     }
-  }, [onUnauthorized, token, trip.id]);
+  }, [onUnauthorized, t, token, trip.id]);
 
   const loadContacts = useCallback(async () => {
     if (!canManage) {
@@ -317,7 +312,7 @@ function TripDetailsPage({
       });
 
       if (response.status === 401) {
-        setContactError("Unauthorized");
+        setContactError(t("details.messages.unauthorized"));
         onUnauthorized();
         return;
       }
@@ -326,18 +321,18 @@ function TripDetailsPage({
 
       if (!response.ok || !Array.isArray(data)) {
         setContactError(
-          ("error" in data && data.error) || "Failed to load previous contacts"
+          ("error" in data && data.error) || t("details.messages.contactsLoadFailed")
         );
         return;
       }
 
       setContacts(data);
     } catch {
-      setContactError("Failed to load previous contacts");
+      setContactError(t("details.messages.contactsLoadFailed"));
     } finally {
       setIsContactsLoading(false);
     }
-  }, [canManage, onUnauthorized, token, trip.id]);
+  }, [canManage, onUnauthorized, t, token, trip.id]);
 
   const loadInvites = useCallback(async () => {
     setInviteError("");
@@ -347,7 +342,7 @@ function TripDetailsPage({
       const { response, data } = await fetchTripInvites(trip.id, token);
 
       if (response.status === 401) {
-        setInviteError("Unauthorized");
+        setInviteError(t("details.messages.unauthorized"));
         onUnauthorized();
         return;
       }
@@ -355,19 +350,19 @@ function TripDetailsPage({
       if (!response.ok || !Array.isArray(data)) {
         setInviteError(
           response.status === 403
-            ? "Only trip admins can manage invites"
-            : ("error" in data && data.error) || "Failed to load invites"
+            ? t("details.messages.adminsManageInvites")
+            : ("error" in data && data.error) || t("details.messages.invitesLoadFailed")
         );
         return;
       }
 
       setInvites(data);
     } catch {
-      setInviteError("Failed to load invites");
+      setInviteError(t("details.messages.invitesLoadFailed"));
     } finally {
       setIsInvitesLoading(false);
     }
-  }, [onUnauthorized, token, trip.id]);
+  }, [onUnauthorized, t, token, trip.id]);
 
   const loadItineraryItems = useCallback(async () => {
     setError("");
@@ -388,17 +383,17 @@ function TripDetailsPage({
       const data = (await response.json()) as ItineraryItem[] | { error?: string };
 
       if (!response.ok || !Array.isArray(data)) {
-        setError(("error" in data && data.error) || "Failed to load itinerary");
+        setError(("error" in data && data.error) || t("details.messages.itineraryLoadFailed"));
         return;
       }
 
       setItineraryItems(data);
     } catch {
-      setError("Failed to load itinerary");
+      setError(t("details.messages.itineraryLoadFailed"));
     } finally {
       setIsLoading(false);
     }
-  }, [onUnauthorized, token, trip.id]);
+  }, [onUnauthorized, t, token, trip.id]);
 
   const loadExpenses = useCallback(async () => {
     setExpenseError("");
@@ -419,17 +414,17 @@ function TripDetailsPage({
       const data = (await response.json()) as Expense[] | { error?: string };
 
       if (!response.ok || !Array.isArray(data)) {
-        setExpenseError(("error" in data && data.error) || "Failed to load expenses");
+        setExpenseError(("error" in data && data.error) || t("details.messages.expensesLoadFailed"));
         return;
       }
 
       setExpenses(data);
     } catch {
-      setExpenseError("Failed to load expenses");
+      setExpenseError(t("details.messages.expensesLoadFailed"));
     } finally {
       setIsExpensesLoading(false);
     }
-  }, [onUnauthorized, token, trip.id]);
+  }, [onUnauthorized, t, token, trip.id]);
 
   useEffect(() => {
     setCurrentTrip(trip);
@@ -470,15 +465,15 @@ function TripDetailsPage({
     setTripManagementError("");
 
     if (!selectedEditDestination) {
-      setTripManagementError("Choose a destination from the search results");
+      setTripManagementError(t("trips.chooseDestination"));
       return;
     }
     if (!editStartDate || !editEndDate) {
-      setTripManagementError("Start date and end date are required");
+      setTripManagementError(t("trips.dateRangeRequired"));
       return;
     }
     if (editStartDate > editEndDate) {
-      setTripManagementError("Start date must not be after end date");
+      setTripManagementError(t("trips.startAfterEnd"));
       return;
     }
 
@@ -513,7 +508,7 @@ function TripDetailsPage({
       const data = (await response.json()) as Trip | { error?: string };
 
       if (!response.ok || !("id" in data)) {
-        setTripManagementError(("error" in data && data.error) || "Failed to update trip");
+        setTripManagementError(("error" in data && data.error) || t("details.messages.updateFailed"));
         return;
       }
 
@@ -527,14 +522,14 @@ function TripDetailsPage({
       onTripUpdated(updatedTrip);
       setIsEditingTrip(false);
     } catch {
-      setTripManagementError("Failed to update trip");
+      setTripManagementError(t("details.messages.updateFailed"));
     } finally {
       setIsTripSaving(false);
     }
   };
 
   const handleTripDelete = async () => {
-    if (!window.confirm("Delete this trip and all related data?")) {
+    if (!window.confirm(t("details.deleteConfirmation"))) {
       return;
     }
 
@@ -556,13 +551,13 @@ function TripDetailsPage({
 
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        setTripManagementError(data.error || "Failed to delete trip");
+        setTripManagementError(data.error || t("details.messages.deleteFailed"));
         return;
       }
 
       onTripDeleted();
     } catch {
-      setTripManagementError("Failed to delete trip");
+      setTripManagementError(t("details.messages.deleteFailed"));
     } finally {
       setIsTripDeleting(false);
     }
@@ -575,7 +570,7 @@ function TripDetailsPage({
     setParticipantSuccessMessage("");
 
     if (!selectedContactUserId) {
-      setContactError("Choose someone from your previous contacts");
+      setContactError(t("details.messages.chooseContact"));
       return;
     }
 
@@ -595,7 +590,7 @@ function TripDetailsPage({
       });
 
       if (response.status === 401) {
-        setParticipantError("Unauthorized");
+        setParticipantError(t("details.messages.unauthorized"));
         onUnauthorized();
         return;
       }
@@ -604,13 +599,13 @@ function TripDetailsPage({
 
       if (!response.ok || !("id" in data)) {
         if (response.status === 409) {
-          setContactError("Participant already exists");
+          setContactError(t("details.messages.participantExists"));
         } else if (response.status === 403) {
           setContactError(
-            ("error" in data && data.error) || "Only trip admins can add participants"
+            ("error" in data && data.error) || t("details.messages.adminsAddParticipants")
           );
         } else {
-          setContactError(("error" in data && data.error) || "Failed to add participant");
+          setContactError(("error" in data && data.error) || t("details.messages.participantAddFailed"));
         }
         return;
       }
@@ -618,10 +613,10 @@ function TripDetailsPage({
       setContactSearch("");
       setSelectedContactUserId(null);
       setParticipantRole("user");
-      setParticipantSuccessMessage("Participant added");
+      setParticipantSuccessMessage(t("details.messages.participantAdded"));
       await Promise.all([loadParticipants(), loadContacts()]);
     } catch {
-      setContactError("Failed to add participant");
+      setContactError(t("details.messages.participantAddFailed"));
     } finally {
       setIsParticipantSubmitting(false);
     }
@@ -640,7 +635,7 @@ function TripDetailsPage({
       });
 
       if (response.status === 401) {
-        setInviteError("Unauthorized");
+        setInviteError(t("details.messages.unauthorized"));
         onUnauthorized();
         return;
       }
@@ -648,18 +643,18 @@ function TripDetailsPage({
       if (!response.ok || !("id" in data)) {
         setInviteError(
           response.status === 403
-            ? "Only trip admins can create invites"
-            : ("error" in data && data.error) || "Failed to create invite"
+            ? t("details.messages.adminsCreateInvites")
+            : ("error" in data && data.error) || t("details.messages.inviteCreateFailed")
         );
         return;
       }
 
       setInviteEmail("");
       setInviteRole("user");
-      setInviteSuccessMessage("Invite created");
+      setInviteSuccessMessage(t("details.messages.inviteCreated"));
       await loadInvites();
     } catch {
-      setInviteError("Failed to create invite");
+      setInviteError(t("details.messages.inviteCreateFailed"));
     } finally {
       setIsInviteSubmitting(false);
     }
@@ -693,7 +688,7 @@ function TripDetailsPage({
       const data = (await response.json()) as CreateItineraryItemResponse;
 
       if (!response.ok || !("id" in data)) {
-        setError(("error" in data && data.error) || "Failed to create itinerary item");
+        setError(("error" in data && data.error) || t("details.messages.itineraryCreateFailed"));
         return;
       }
 
@@ -709,9 +704,9 @@ function TripDetailsPage({
       setTitle("");
       setDescription("");
       setScheduledDate("");
-      setSuccessMessage("Itinerary item added");
+      setSuccessMessage(t("details.messages.itineraryAdded"));
     } catch {
-      setError("Failed to create itinerary item");
+      setError(t("details.messages.itineraryCreateFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -746,7 +741,7 @@ function TripDetailsPage({
       const data = (await response.json()) as CreateExpenseResponse;
 
       if (!response.ok || !("id" in data)) {
-        setExpenseError(("error" in data && data.error) || "Failed to create expense");
+        setExpenseError(("error" in data && data.error) || t("details.messages.expenseCreateFailed"));
         return;
       }
 
@@ -764,9 +759,9 @@ function TripDetailsPage({
       setExpenseAmount("");
       setExpenseCurrency(data.currency);
       setExpenseCategory("");
-      setExpenseSuccessMessage("Expense added");
+      setExpenseSuccessMessage(t("details.messages.expenseAdded"));
     } catch {
-      setExpenseError("Failed to create expense");
+      setExpenseError(t("details.messages.expenseCreateFailed"));
     } finally {
       setIsExpenseSubmitting(false);
     }
@@ -813,7 +808,7 @@ function TripDetailsPage({
 
     const deleted = await deleteTripResource(
       `participants/${participant.userId}`,
-      "Failed to remove participant",
+      t("details.messages.participantRemoveFailed"),
       setParticipantError
     );
 
@@ -825,7 +820,7 @@ function TripDetailsPage({
       setParticipants(updatedParticipants);
       setCurrentTrip(updatedTrip);
       onTripUpdated(updatedTrip);
-      setParticipantSuccessMessage("Participant removed");
+      setParticipantSuccessMessage(t("details.messages.participantRemoved"));
     }
 
     setDeletingParticipantUserId(null);
@@ -864,7 +859,7 @@ function TripDetailsPage({
 
       if (!response.ok || !data || !("userId" in data)) {
         setParticipantError(
-          (data && "error" in data && data.error) || "Failed to update participant role"
+          (data && "error" in data && data.error) || t("details.messages.roleUpdateFailed")
         );
         return;
       }
@@ -878,9 +873,9 @@ function TripDetailsPage({
       setParticipants(updatedParticipants);
       setCurrentTrip(updatedTrip);
       onTripUpdated(updatedTrip);
-      setParticipantSuccessMessage("Participant role updated");
+      setParticipantSuccessMessage(t("details.messages.roleUpdated"));
     } catch {
-      setParticipantError("Failed to update participant role");
+      setParticipantError(t("details.messages.roleUpdateFailed"));
     } finally {
       setUpdatingParticipantUserId(null);
     }
@@ -897,7 +892,7 @@ function TripDetailsPage({
 
     const deleted = await deleteTripResource(
       `itinerary/${item.id}`,
-      "Failed to delete itinerary item",
+      t("details.messages.itineraryDeleteFailed"),
       setError
     );
 
@@ -913,7 +908,7 @@ function TripDetailsPage({
             }
           : currentSummary
       );
-      setSuccessMessage("Itinerary item deleted");
+      setSuccessMessage(t("details.messages.itineraryDeleted"));
     }
 
     setDeletingItineraryItemId(null);
@@ -930,7 +925,7 @@ function TripDetailsPage({
 
     const deleted = await deleteTripResource(
       `expenses/${expense.id}`,
-      "Failed to delete expense",
+      t("details.messages.expenseDeleteFailed"),
       setExpenseError
     );
 
@@ -947,7 +942,7 @@ function TripDetailsPage({
             }
           : currentSummary
       );
-      setExpenseSuccessMessage("Expense deleted");
+      setExpenseSuccessMessage(t("details.messages.expenseDeleted"));
     }
 
     setDeletingExpenseId(null);
@@ -966,13 +961,13 @@ function TripDetailsPage({
     <section className="page trip-details-page">
       <div className="details-hero">
         <div>
-          <p className="eyebrow">Trip details</p>
+          <p className="eyebrow">{t("details.eyebrow")}</p>
           <h1>{currentTrip.name}</h1>
           <p className="trip-description">
-            {currentTrip.description || "No description added yet."}
+            {currentTrip.description || t("details.noDescription")}
           </p>
           <span className={`trip-role-badge trip-role-${tripRole}`}>
-            {tripRole} access
+            {t("details.roleAccess", { role: t(`roles.${tripRole}`) })}
           </span>
         </div>
         <div className="details-actions">
@@ -986,7 +981,7 @@ function TripDetailsPage({
                   setIsEditingTrip((current) => !current);
                 }}
               >
-                {isEditingTrip ? "Cancel edit" : "Edit trip"}
+                {isEditingTrip ? t("details.cancelEdit") : t("details.editTrip")}
               </button>
               <button
                 className="danger-button"
@@ -994,21 +989,21 @@ function TripDetailsPage({
                 onClick={handleTripDelete}
                 disabled={isTripDeleting}
               >
-                {isTripDeleting ? "Deleting..." : "Delete trip"}
+                {isTripDeleting ? t("details.deleting") : t("details.deleteTrip")}
               </button>
             </>
           ) : null}
           <button className="secondary-button" type="button" onClick={onBack}>
-            Back to trips
+            {t("common.backToTrips")}
           </button>
         </div>
       </div>
 
-      <nav className="trip-section-nav" aria-label="Trip sections">
-        <a href="#trip-overview">Overview</a>
-        <a href="#trip-people">People</a>
-        <a href="#trip-itinerary">Itinerary</a>
-        <a href="#trip-budget">Budget</a>
+      <nav className="trip-section-nav" aria-label={t("details.sections")}>
+        <a href="#trip-overview">{t("details.overview")}</a>
+        <a href="#trip-people">{t("details.people")}</a>
+        <a href="#trip-itinerary">{t("details.itinerary")}</a>
+        <a href="#trip-budget">{t("details.budget")}</a>
       </nav>
 
       <section
@@ -1019,8 +1014,8 @@ function TripDetailsPage({
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">01</span>
           <div>
-            <h2 id="trip-overview-heading">Overview</h2>
-            <p>Destination, dates, weather, and the trip at a glance.</p>
+            <h2 id="trip-overview-heading">{t("details.overview")}</h2>
+            <p>{t("details.overviewDescription")}</p>
           </div>
         </header>
 
@@ -1034,10 +1029,10 @@ function TripDetailsPage({
 
         {canManage && isEditingTrip ? (
           <section className="panel trip-edit-card">
-          <h2>Edit trip</h2>
+          <h2>{t("details.editTrip")}</h2>
           <form className="form-stack" onSubmit={handleTripUpdate}>
             <label>
-              Trip name
+              {t("details.edit.tripName")}
               <input
                 value={editName}
                 maxLength={255}
@@ -1046,7 +1041,7 @@ function TripDetailsPage({
               />
             </label>
             <label>
-              Description
+              {t("details.description")}
               <textarea
                 value={editDescription}
                 onChange={(event) => setEditDescription(event.target.value)}
@@ -1062,7 +1057,7 @@ function TripDetailsPage({
             />
             <div className="date-inputs">
               <label>
-                Start date
+                {t("details.startDate")}
                 <input
                   type="date"
                   value={editStartDate}
@@ -1072,7 +1067,7 @@ function TripDetailsPage({
                 />
               </label>
               <label>
-                End date
+                {t("details.endDate")}
                 <input
                   type="date"
                   value={editEndDate}
@@ -1083,7 +1078,7 @@ function TripDetailsPage({
               </label>
             </div>
             <button className="primary-button" type="submit" disabled={isTripSaving}>
-              {isTripSaving ? "Saving..." : "Save changes"}
+              {isTripSaving ? t("common.saving") : t("details.edit.saveChanges")}
             </button>
           </form>
           </section>
@@ -1091,28 +1086,28 @@ function TripDetailsPage({
 
         <div className="details-layout">
         <section className="panel trip-info-card">
-          <p className="eyebrow">Overview</p>
+          <p className="eyebrow">{t("details.overview")}</p>
           <h2>{currentTrip.name}</h2>
-          <p>{currentTrip.description || "No description added yet."}</p>
+          <p>{currentTrip.description || t("details.noDescription")}</p>
         </section>
 
         <section className="panel metadata-card">
-          <h2>Trip metadata</h2>
+          <h2>{t("details.metadata")}</h2>
           <dl className="metadata-list">
             <div>
-              <dt>Destination</dt>
+              <dt>{t("details.destination")}</dt>
               <dd>{currentTrip.destination || "-"}</dd>
             </div>
             <div>
-              <dt>Start date</dt>
-              <dd>{formatTripDate(currentTrip.startDate)}</dd>
+              <dt>{t("details.startDate")}</dt>
+              <dd>{formatTripDate(currentTrip.startDate, formattingLocale)}</dd>
             </div>
             <div>
-              <dt>End date</dt>
-              <dd>{formatTripDate(currentTrip.endDate)}</dd>
+              <dt>{t("details.endDate")}</dt>
+              <dd>{formatTripDate(currentTrip.endDate, formattingLocale)}</dd>
             </div>
             <div>
-              <dt>Created by</dt>
+              <dt>{t("details.createdBy")}</dt>
               <dd>{creatorName}</dd>
             </div>
           </dl>
@@ -1121,37 +1116,38 @@ function TripDetailsPage({
 
         <section className="summary-section">
         <div className="section-heading">
-          <h2>Trip summary</h2>
+          <h2>{t("details.summary")}</h2>
         </div>
 
         {summaryError ? <p className="error">{summaryError}</p> : null}
-        {isSummaryLoading ? <p className="loading-state">Gathering trip summary...</p> : null}
+        {isSummaryLoading ? <p className="loading-state">{t("details.gatheringSummary")}</p> : null}
 
         {!isSummaryLoading && summary ? (
           <div className="summary-grid">
             <article className="summary-card">
-              <p>Duration</p>
-              <strong>{summary.tripDurationDays} days</strong>
+              <p>{t("details.duration")}</p>
+              <strong>{t("details.days", { count: summary.tripDurationDays })}</strong>
             </article>
             <article className="summary-card">
-              <p>Itinerary Items</p>
+              <p>{t("details.itineraryItems")}</p>
               <strong>{summary.itineraryCount}</strong>
             </article>
             <article className="summary-card">
-              <p>Total Expenses</p>
+              <p>{t("details.totalExpenses")}</p>
               <strong>
                 {convertedExpenseTotal !== null
-                  ? formatExpenseAmount(convertedExpenseTotal, conversionCurrency)
+                  ? formatExpenseAmount(convertedExpenseTotal, conversionCurrency, formattingLocale)
                   : singleExpenseCurrency
                     ? formatExpenseAmount(
                         expenseSubtotals[singleExpenseCurrency],
-                        singleExpenseCurrency
+                        singleExpenseCurrency,
+                        formattingLocale
                       )
-                    : "Mixed currencies"}
+                    : t("details.mixedCurrencies")}
               </strong>
             </article>
             <article className="summary-card">
-              <p>Expense Count</p>
+              <p>{t("details.expenseCount")}</p>
               <strong>{summary.expenseCount}</strong>
             </article>
           </div>
@@ -1167,22 +1163,22 @@ function TripDetailsPage({
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">02</span>
           <div>
-            <h2 id="trip-people-heading">People</h2>
-            <p>Participants, access roles, and outstanding invitations.</p>
+            <h2 id="trip-people-heading">{t("details.people")}</h2>
+            <p>{t("details.peopleDescription")}</p>
           </div>
         </header>
 
         <div className={`participants-layout${canManage ? "" : " read-only-content-layout"}`}>
         {canManage ? (
           <section className="panel participant-form-card">
-          <h2>Add participant</h2>
+          <h2>{t("details.addParticipant")}</h2>
           <p className="page-subtitle">
-            Choose someone connected to you through an accepted TripBuddy invitation.
+            {t("details.addParticipantDescription")}
           </p>
 
           <form className="form-stack" onSubmit={handleParticipantSubmit}>
             <label>
-              Search previous contacts
+              {t("details.searchContacts")}
               <input
                 type="search"
                 value={contactSearch}
@@ -1190,24 +1186,24 @@ function TripDetailsPage({
                   setContactSearch(event.target.value);
                   setSelectedContactUserId(null);
                 }}
-                placeholder="Name or email"
+                placeholder={t("details.nameOrEmail")}
               />
             </label>
 
             {isContactsLoading ? (
-              <p className="loading-state">Loading previous contacts...</p>
+              <p className="loading-state">{t("details.loadingContacts")}</p>
             ) : null}
 
             {!isContactsLoading && contacts.length === 0 ? (
               <p className="empty-state">
-                No previous contacts yet. Invite someone by email first.
+                {t("details.noContacts")}
               </p>
             ) : null}
 
             {!isContactsLoading && contacts.length > 0 ? (
-              <div className="contact-search-results" aria-label="Previous contacts">
+              <div className="contact-search-results" aria-label={t("details.previousContacts")}>
                 {matchingContacts.length === 0 ? (
-                  <p className="empty-state">No matching previous contacts.</p>
+                  <p className="empty-state">{t("details.noMatchingContacts")}</p>
                 ) : null}
                 {matchingContacts.map((contact) => (
                     <button
@@ -1229,14 +1225,14 @@ function TripDetailsPage({
             ) : null}
 
             <label>
-              Participant role
+              {t("details.participantRole")}
               <select
                 value={participantRole}
                 onChange={(event) => setParticipantRole(event.target.value as TripRole)}
               >
-                <option value="admin">Admin — full control</option>
-                <option value="user">User — add plans and expenses</option>
-                <option value="guest">Guest — view only</option>
+                <option value="admin">{t("details.roleAdminDescription")}</option>
+                <option value="user">{t("details.roleUserDescription")}</option>
+                <option value="guest">{t("details.roleGuestDescription")}</option>
               </select>
             </label>
 
@@ -1245,7 +1241,7 @@ function TripDetailsPage({
               type="submit"
               disabled={isParticipantSubmitting || selectedContactUserId === null}
             >
-              {isParticipantSubmitting ? "Adding..." : "Add participant"}
+              {isParticipantSubmitting ? t("details.adding") : t("details.addParticipant")}
             </button>
           </form>
 
@@ -1256,15 +1252,15 @@ function TripDetailsPage({
 
         <section className="participants-section">
           <div className="section-heading">
-            <h2>Participants</h2>
-            <span>{participants.length} total</span>
+            <h2>{t("details.participants")}</h2>
+            <span>{t("common.total", { count: participants.length })}</span>
           </div>
 
           {participantError ? <p className="error">{participantError}</p> : null}
-          {isParticipantsLoading ? <p className="loading-state">Gathering participants...</p> : null}
+          {isParticipantsLoading ? <p className="loading-state">{t("details.gatheringParticipants")}</p> : null}
 
           {!isParticipantsLoading && participants.length === 0 ? (
-            <p className="empty-state">No participants yet.</p>
+            <p className="empty-state">{t("details.noParticipants")}</p>
           ) : null}
 
           {!isParticipantsLoading && participants.length > 0 ? (
@@ -1275,14 +1271,14 @@ function TripDetailsPage({
                   key={participant.id ?? `${currentTrip.id}-${participant.userId}`}
                 >
                   <div>
-                    <strong>{participant.name || `User #${participant.userId}`}</strong>
-                    <p>Trip participant</p>
+                    <strong>{participant.name || t("common.userFallback", { id: participant.userId })}</strong>
+                    <p>{t("details.participant")}</p>
                   </div>
                   <div className="item-card-actions">
                     {canManage && participant.userId !== currentTrip.createdBy ? (
                       <select
                         className="participant-role-select"
-                        aria-label={`Role for ${participant.name || `User ${participant.userId}`}`}
+                        aria-label={t("details.roleFor", { name: participant.name || t("common.userFallback", { id: participant.userId }) })}
                         value={participant.role}
                         onChange={(event) =>
                           void handleParticipantRoleChange(
@@ -1292,12 +1288,12 @@ function TripDetailsPage({
                         }
                         disabled={updatingParticipantUserId === participant.userId}
                       >
-                        <option value="admin">Admin</option>
-                        <option value="user">User</option>
-                        <option value="guest">Guest</option>
+                        <option value="admin">{t("details.roleAdminOption")}</option>
+                        <option value="user">{t("details.roleUserOption")}</option>
+                        <option value="guest">{t("details.roleGuestOption")}</option>
                       </select>
                     ) : (
-                      <span>{participant.role}</span>
+                      <span>{i18n.resolvedLanguage === "sr" ? t(`roles.${participant.role}`) : participant.role}</span>
                     )}
                     {canManage && participant.userId !== currentTrip.createdBy ? (
                       <button
@@ -1306,7 +1302,7 @@ function TripDetailsPage({
                         onClick={() => void handleParticipantDelete(participant)}
                         disabled={deletingParticipantUserId === participant.userId}
                       >
-                        {deletingParticipantUserId === participant.userId ? "Removing..." : "Remove"}
+                        {deletingParticipantUserId === participant.userId ? t("details.removing") : t("details.remove")}
                       </button>
                     ) : null}
                   </div>
@@ -1320,11 +1316,11 @@ function TripDetailsPage({
         {canManage ? (
           <div className="invites-layout">
         <section className="panel invite-form-card">
-          <h2>Create invite</h2>
+          <h2>{t("details.createInvite")}</h2>
 
           <form className="form-stack" onSubmit={handleInviteSubmit}>
             <label>
-              Invite email
+              {t("details.inviteEmail")}
               <input
                 type="email"
                 value={inviteEmail}
@@ -1334,19 +1330,19 @@ function TripDetailsPage({
             </label>
 
             <label>
-              Invite role
+              {t("details.inviteRole")}
               <select
                 value={inviteRole}
                 onChange={(event) => setInviteRole(event.target.value as TripRole)}
               >
-                <option value="admin">Admin — full control</option>
-                <option value="user">User — add plans and expenses</option>
-                <option value="guest">Guest — view only</option>
+                <option value="admin">{t("details.roleAdminDescription")}</option>
+                <option value="user">{t("details.roleUserDescription")}</option>
+                <option value="guest">{t("details.roleGuestDescription")}</option>
               </select>
             </label>
 
             <button className="primary-button" type="submit" disabled={isInviteSubmitting}>
-              {isInviteSubmitting ? "Creating..." : "Create invite"}
+              {isInviteSubmitting ? t("details.creating") : t("details.createInvite")}
             </button>
           </form>
 
@@ -1355,15 +1351,15 @@ function TripDetailsPage({
 
         <section className="invites-section">
           <div className="section-heading">
-            <h2>Invites</h2>
-            <span>{invites.length} total</span>
+            <h2>{t("details.invites")}</h2>
+            <span>{t("common.total", { count: invites.length })}</span>
           </div>
 
           {inviteError ? <p className="error">{inviteError}</p> : null}
-          {isInvitesLoading ? <p className="loading-state">Gathering invites...</p> : null}
+          {isInvitesLoading ? <p className="loading-state">{t("details.gatheringInvites")}</p> : null}
 
           {!isInvitesLoading && invites.length === 0 ? (
-            <p className="empty-state">No invites yet. Create one to share this trip by link.</p>
+            <p className="empty-state">{t("details.noInvites")}</p>
           ) : null}
 
           {!isInvitesLoading && invites.length > 0 ? (
@@ -1378,8 +1374,8 @@ function TripDetailsPage({
                       <p>{inviteLink}</p>
                     </div>
                     <div className="invite-card-meta">
-                      <span>{invite.role}</span>
-                      <span>{getInviteAcceptedAt(invite) ? "Accepted" : "Not accepted"}</span>
+                      <span>{t(`roles.${invite.role}`)}</span>
+                      <span>{getInviteAcceptedAt(invite) ? t("details.accepted") : t("details.notAccepted")}</span>
                     </div>
                   </li>
                 );
@@ -1399,19 +1395,19 @@ function TripDetailsPage({
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">03</span>
           <div>
-            <h2 id="trip-itinerary-heading">Itinerary</h2>
-            <p>Plans, bookings, and scheduled activities in one timeline.</p>
+            <h2 id="trip-itinerary-heading">{t("details.itinerary")}</h2>
+            <p>{t("details.itineraryDescription")}</p>
           </div>
         </header>
 
         <div className={`itinerary-layout${canContribute ? "" : " read-only-content-layout"}`}>
         {canContribute ? (
           <section className="panel itinerary-form-card">
-          <h2>Add itinerary item</h2>
+          <h2>{t("details.addItinerary")}</h2>
 
           <form className="form-stack" onSubmit={handleItinerarySubmit}>
             <label>
-              Title
+              {t("details.title")}
               <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
@@ -1420,7 +1416,7 @@ function TripDetailsPage({
             </label>
 
             <label>
-              Description
+              {t("details.description")}
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -1429,7 +1425,7 @@ function TripDetailsPage({
             </label>
 
             <label>
-              Scheduled date
+              {t("details.scheduledDate")}
               <input
                 type="date"
                 value={scheduledDate}
@@ -1440,7 +1436,7 @@ function TripDetailsPage({
             </label>
 
             <button className="primary-button" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Adding..." : "Add item"}
+              {isSubmitting ? t("details.adding") : t("details.addItem")}
             </button>
           </form>
 
@@ -1450,17 +1446,16 @@ function TripDetailsPage({
 
         <section className="itinerary-section">
           <div className="section-heading">
-            <h3>Scheduled items</h3>
-            <span>{itineraryItems.length} total</span>
+            <h3>{t("details.scheduledItems")}</h3>
+            <span>{t("common.total", { count: itineraryItems.length })}</span>
           </div>
 
           {error ? <p className="error">{error}</p> : null}
-          {isLoading ? <p className="loading-state">Gathering itinerary...</p> : null}
+          {isLoading ? <p className="loading-state">{t("details.gatheringItinerary")}</p> : null}
 
           {!isLoading && itineraryItems.length === 0 ? (
             <p className="empty-state">
-              No itinerary items yet. Add the first plan, booking, or place you do not want
-              to miss.
+              {t("details.noItineraryLong")}
             </p>
           ) : null}
 
@@ -1469,7 +1464,7 @@ function TripDetailsPage({
               {itineraryItems.map((item) => (
                 <li className="itinerary-item" key={item.id}>
                   <div className="itinerary-date">
-                    {formatTripDate(item.scheduledDate)}
+                    {formatTripDate(item.scheduledDate, formattingLocale)}
                   </div>
                   <div className="itinerary-card">
                     <div className="itinerary-card-header">
@@ -1481,11 +1476,11 @@ function TripDetailsPage({
                           onClick={() => void handleItineraryDelete(item)}
                           disabled={deletingItineraryItemId === item.id}
                         >
-                          {deletingItineraryItemId === item.id ? "Deleting..." : "Delete"}
+                          {deletingItineraryItemId === item.id ? t("details.deleting") : t("common.delete")}
                         </button>
                       ) : null}
                     </div>
-                    <p>{item.description || "No description"}</p>
+                    <p>{item.description || t("trips.noDescriptionShort")}</p>
                   </div>
                 </li>
               ))}
@@ -1503,19 +1498,19 @@ function TripDetailsPage({
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">04</span>
           <div>
-            <h2 id="trip-budget-heading">Budget</h2>
-            <p>Expense entry, converted totals, and the complete cost list.</p>
+            <h2 id="trip-budget-heading">{t("details.budget")}</h2>
+            <p>{t("details.budgetDescription")}</p>
           </div>
         </header>
 
         <div className={`expenses-layout${canContribute ? "" : " read-only-content-layout"}`}>
         {canContribute ? (
           <section className="panel expense-form-card">
-          <h2>Add expense</h2>
+          <h2>{t("details.addExpense")}</h2>
 
           <form className="form-stack" onSubmit={handleExpenseSubmit}>
             <label>
-              Title
+              {t("details.title")}
               <input
                 value={expenseTitle}
                 onChange={(event) => setExpenseTitle(event.target.value)}
@@ -1525,7 +1520,7 @@ function TripDetailsPage({
 
             <div className="expense-inputs">
               <label>
-                Amount
+                {t("details.amount")}
                 <input
                   type="number"
                   min="0"
@@ -1537,14 +1532,14 @@ function TripDetailsPage({
               </label>
 
               <label>
-                Currency
+                {t("details.currency")}
                 <select
                   value={expenseCurrency}
                   onChange={(event) => setExpenseCurrency(event.target.value)}
                 >
-                  {supportedCurrencies.map(({ code, name }) => (
+                  {supportedCurrencies.map((code) => (
                     <option key={code} value={code}>
-                      {name} ({code})
+                      {t(`details.currencies.${code}`)} ({code})
                     </option>
                   ))}
                 </select>
@@ -1552,7 +1547,7 @@ function TripDetailsPage({
             </div>
 
             <label>
-              Category
+              {t("details.category")}
               <input
                 value={expenseCategory}
                 onChange={(event) => setExpenseCategory(event.target.value)}
@@ -1560,7 +1555,7 @@ function TripDetailsPage({
             </label>
 
             <button className="primary-button" type="submit" disabled={isExpenseSubmitting}>
-              {isExpenseSubmitting ? "Adding..." : "Add expense"}
+              {isExpenseSubmitting ? t("details.adding") : t("details.addExpense")}
             </button>
           </form>
 
@@ -1572,28 +1567,29 @@ function TripDetailsPage({
           <div className="expense-total-card">
             <div className="expense-total-heading">
               <div>
-                <p className="eyebrow">Estimated total</p>
+                <p className="eyebrow">{t("details.estimatedTotal")}</p>
                 <strong>
                   {isConversionLoading
-                    ? "Converting..."
+                    ? t("details.converting")
                     : convertedExpenseTotal !== null
                       ? formatExpenseAmount(
                           convertedExpenseTotal,
-                          conversionCurrency
+                          conversionCurrency,
+                          formattingLocale
                         )
-                      : "Unavailable"}
+                      : t("details.unavailable")}
                 </strong>
               </div>
 
               <label className="conversion-currency">
-                Display currency
+                {t("details.displayCurrency")}
                 <select
                   value={conversionCurrency}
                   onChange={(event) => setConversionCurrency(event.target.value)}
                 >
-                  {supportedCurrencies.map(({ code, name }) => (
+                  {supportedCurrencies.map((code) => (
                     <option key={code} value={code}>
-                      {name} ({code})
+                      {t(`details.currencies.${code}`)} ({code})
                     </option>
                   ))}
                 </select>
@@ -1602,17 +1598,16 @@ function TripDetailsPage({
 
             {expenseCurrencies.length > 0 ? (
               <p className="expense-subtotals">
-                Original totals:{" "}
-                {expenseCurrencies
+                {t("details.originalTotals", { totals: expenseCurrencies
                   .map((currency) =>
-                    formatExpenseAmount(expenseSubtotals[currency], currency)
+                    formatExpenseAmount(expenseSubtotals[currency], currency, formattingLocale)
                   )
-                  .join(" · ")}
+                  .join(" · ") })}
               </p>
             ) : null}
             {conversionRateDate ? (
               <p className="conversion-note">
-                Approximate reference rates for {conversionRateDate} · Frankfurter
+                {t("details.ratesNote", { date: conversionRateDate })}
               </p>
             ) : null}
             {conversionError ? (
@@ -1621,16 +1616,16 @@ function TripDetailsPage({
           </div>
 
           <div className="section-heading">
-            <h2>Expenses</h2>
-            <span>{expenses.length} total</span>
+            <h2>{t("details.expenses")}</h2>
+            <span>{t("common.total", { count: expenses.length })}</span>
           </div>
 
           {expenseError ? <p className="error">{expenseError}</p> : null}
-          {isExpensesLoading ? <p className="loading-state">Gathering expenses...</p> : null}
+          {isExpensesLoading ? <p className="loading-state">{t("details.gatheringExpenses")}</p> : null}
 
           {!isExpensesLoading && expenses.length === 0 ? (
             <p className="empty-state">
-              No expenses yet. Add your first cost to keep this trip budget easy to follow.
+              {t("details.noExpensesLong")}
             </p>
           ) : null}
 
@@ -1640,10 +1635,10 @@ function TripDetailsPage({
                 <li className="expense-card" key={expense.id}>
                   <div>
                     <strong>{expense.title}</strong>
-                    <p>{expense.category || "Uncategorized"}</p>
+                    <p>{expense.category || t("details.uncategorized")}</p>
                   </div>
                   <div className="item-card-actions">
-                    <span>{formatExpenseAmount(expense.amount, expense.currency)}</span>
+                    <span>{formatExpenseAmount(expense.amount, expense.currency, formattingLocale)}</span>
                     {canManage ? (
                       <button
                         className="compact-danger-button"
@@ -1651,7 +1646,7 @@ function TripDetailsPage({
                         onClick={() => void handleExpenseDelete(expense)}
                         disabled={deletingExpenseId === expense.id}
                       >
-                        {deletingExpenseId === expense.id ? "Deleting..." : "Delete"}
+                        {deletingExpenseId === expense.id ? t("details.deleting") : t("common.delete")}
                       </button>
                     ) : null}
                   </div>
