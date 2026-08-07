@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import "./App.css";
+import ThemeToggle from "./components/ThemeToggle";
+import LanguageToggle from "./components/LanguageToggle";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "./config/api";
+import { useTheme } from "./hooks/useTheme";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GuestTripPage from "./pages/GuestTripPage";
@@ -72,6 +76,8 @@ function getStoredUser() {
 }
 
 function App() {
+  const { t } = useTranslation();
+  const { theme, toggleTheme } = useTheme();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(getStoredUser);
   const [isAuthBootstrapping, setIsAuthBootstrapping] = useState(
@@ -244,7 +250,7 @@ function App() {
     window.history.pushState({}, "", "/");
     setPasswordResetToken(null);
     setAuthPage("login");
-    setAuthNotice("Password reset successfully. You can now log in.");
+    setAuthNotice(t("app.passwordResetSuccess"));
   };
 
   const handleVerificationBackToLogin = useCallback((notice = "") => {
@@ -257,8 +263,12 @@ function App() {
 
   return (
     <main className="app">
+      <div className="app-toolbar" aria-label={t("common.applicationSettings")}>
+        <LanguageToggle />
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      </div>
       {isAuthBootstrapping ? (
-        <p className="loading-state">Restoring your session...</p>
+        <p className="loading-state">{t("app.restoringSession")}</p>
       ) : guestToken !== null ? (
         <GuestTripPage
           guestToken={guestToken}
@@ -270,9 +280,9 @@ function App() {
       ) : verificationToken !== null ? (
         <div className="auth-layout">
           <div className="brand-panel">
-            <p className="eyebrow">TripBuddy</p>
-            <h1>Confirm your address.</h1>
-            <p>Finish setting up your account securely.</p>
+            <p className="eyebrow">{t("common.appName")}</p>
+            <h1>{t("brand.verifyTitle")}</h1>
+            <p>{t("brand.verifyDescription")}</p>
           </div>
           <div className="auth-column">
             <VerifyEmailPage
@@ -335,9 +345,9 @@ function App() {
       ) : authPage === "register" ? (
         <div className="auth-layout">
           <div className="brand-panel">
-            <p className="eyebrow">TripBuddy</p>
-            <h1>Plan lighter, travel better.</h1>
-            <p>Keep your next escapes organized with calm, simple trip planning.</p>
+            <p className="eyebrow">{t("common.appName")}</p>
+            <h1>{t("brand.slogan")}</h1>
+            <p>{t("brand.sloganDescription")}</p>
           </div>
           <div className="auth-column">
             <RegisterPage
@@ -352,9 +362,9 @@ function App() {
       ) : authPage === "forgot-password" ? (
         <div className="auth-layout">
           <div className="brand-panel">
-            <p className="eyebrow">TripBuddy</p>
-            <h1>Find your way back.</h1>
-            <p>Request a secure, time-limited link to choose a new password.</p>
+            <p className="eyebrow">{t("common.appName")}</p>
+            <h1>{t("brand.recoveryTitle")}</h1>
+            <p>{t("brand.recoveryDescription")}</p>
           </div>
           <div className="auth-column">
             <ForgotPasswordPage onBackToLogin={() => setAuthPage("login")} />
@@ -363,9 +373,9 @@ function App() {
       ) : authPage === "resend-verification" ? (
         <div className="auth-layout">
           <div className="brand-panel">
-            <p className="eyebrow">TripBuddy</p>
-            <h1>One last step.</h1>
-            <p>Verify your email before opening your trips.</p>
+            <p className="eyebrow">{t("common.appName")}</p>
+            <h1>{t("brand.finalStepTitle")}</h1>
+            <p>{t("brand.finalStepDescription")}</p>
           </div>
           <div className="auth-column">
             <ResendVerificationPage
@@ -377,9 +387,9 @@ function App() {
       ) : (
         <div className="auth-layout">
           <div className="brand-panel">
-            <p className="eyebrow">TripBuddy</p>
-            <h1>Plan lighter, travel better.</h1>
-            <p>Keep your next escapes organized with calm, simple trip planning.</p>
+            <p className="eyebrow">{t("common.appName")}</p>
+            <h1>{t("brand.slogan")}</h1>
+            <p>{t("brand.sloganDescription")}</p>
           </div>
           <div className="auth-column">
             <LoginPage
@@ -399,7 +409,7 @@ function App() {
               type="button"
               onClick={() => setAuthPage("register")}
             >
-              Create account
+              {t("auth.createAccount")}
             </button>
           </div>
         </div>

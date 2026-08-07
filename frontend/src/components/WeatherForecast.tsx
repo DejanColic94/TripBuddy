@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
+import { getFormattingLocale } from "../i18n";
 
 type WeatherResponse =
   | {
@@ -23,26 +25,12 @@ type WeatherResponse =
       attribution: string;
     };
 
-const weatherLabels: Record<number, string> = {
-  0: "Clear",
-  1: "Mostly clear",
-  2: "Partly cloudy",
-  3: "Cloudy",
-  45: "Fog",
-  48: "Freezing fog",
-  51: "Light drizzle",
-  53: "Drizzle",
-  55: "Heavy drizzle",
-  61: "Light rain",
-  63: "Rain",
-  65: "Heavy rain",
-  71: "Light snow",
-  73: "Snow",
-  75: "Heavy snow",
-  80: "Rain showers",
-  81: "Rain showers",
-  82: "Heavy showers",
-  95: "Thunderstorm",
+const weatherLabelKeys: Record<number, string> = {
+  0: "clear", 1: "mostlyClear", 2: "partlyCloudy", 3: "cloudy",
+  45: "fog", 48: "freezingFog", 51: "lightDrizzle", 53: "drizzle",
+  55: "heavyDrizzle", 61: "lightRain", 63: "rain", 65: "heavyRain",
+  71: "lightSnow", 73: "snow", 75: "heavySnow", 80: "rainShowers",
+  81: "rainShowers", 82: "heavyShowers", 95: "thunderstorm",
 };
 
 function getWeatherVisual(code: number) {
@@ -69,20 +57,24 @@ function WeatherForecast({
   startDate: string | null;
   endDate: string | null;
 }) {
+  const { i18n, t } = useTranslation();
+  const formattingLocale = getFormattingLocale(i18n.resolvedLanguage);
   const [forecast, setForecast] = useState<WeatherResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!destination || !startDate || !endDate) {
-      setForecast(null);
-      setError("");
       return;
     }
 
     let active = true;
-    setLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+        setError("");
+      }
+    });
     const query = new URLSearchParams({
       destination,
       startDate: startDate.slice(0, 10),
@@ -92,12 +84,12 @@ function WeatherForecast({
     fetch(`${API_BASE_URL}/integrations/weather?${query}`)
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Failed to load weather");
+        if (!response.ok) throw new Error(data.error || t("weather.loadFailed"));
         if (active) setForecast(data as WeatherResponse);
       })
       .catch((reason: unknown) => {
         if (active) {
-          setError(reason instanceof Error ? reason.message : "Failed to load weather");
+          setError(reason instanceof Error ? reason.message : t("weather.loadFailed"));
         }
       })
       .finally(() => {
@@ -107,7 +99,7 @@ function WeatherForecast({
     return () => {
       active = false;
     };
-  }, [destination, endDate, startDate]);
+  }, [destination, endDate, startDate, t]);
 
   if (!destination || !startDate || !endDate) return null;
 
@@ -121,10 +113,10 @@ function WeatherForecast({
   return (
     <section className="panel weather-panel">
       <div className="section-heading">
-        <h2>Weather outlook</h2>
+        <h2>{t("weather.title")}</h2>
         <span>Open-Meteo</span>
       </div>
-      {loading ? <p className="loading-state">Checking the weather...</p> : null}
+      {loading ? <p className="loading-state">{t("weather.checking")}</p> : null}
       {error ? <p className="error">{error}</p> : null}
       {forecast && !forecast.available ? (
         <p className="empty-state">{forecast.reason}</p>
@@ -137,10 +129,10 @@ function WeatherForecast({
           </p>
           {hasClimate && forecast.climatePeriod ? (
             <p className="weather-method-note">
-              {hasForecast
-                ? "Forecast data is shown where available. Later dates use typical daily conditions"
-                : "These are typical historical conditions, not a forecast"}{" "}
-              from {forecast.climatePeriod.startYear}–{forecast.climatePeriod.endYear}.
+              {t(hasForecast ? "weather.mixedMethod" : "weather.climateMethod", {
+                startYear: forecast.climatePeriod.startYear,
+                endYear: forecast.climatePeriod.endYear,
+              })}
             </p>
           ) : null}
           <div className="weather-grid">
@@ -158,18 +150,18 @@ function WeatherForecast({
                 >
                   <div className="weather-card-heading">
                     <strong>
-                      {new Date(`${day.date}T00:00:00`).toLocaleDateString("en", {
+                      {new Date(`${day.date}T00:00:00`).toLocaleDateString(formattingLocale, {
                         weekday: "short",
                         month: "short",
                         day: "numeric",
                       })}
                     </strong>
                     <span className="weather-card-badges">
-                      {isToday ? <span className="weather-today">Today</span> : null}
+                      {isToday ? <span className="weather-today">{t("weather.today")}</span> : null}
                       <span
                         className={`weather-source weather-source--${day.source}`}
                       >
-                        {day.source === "forecast" ? "Forecast" : "Typical"}
+                        {t(day.source === "forecast" ? "weather.forecast" : "weather.typical")}
                       </span>
                     </span>
                   </div>
@@ -177,7 +169,9 @@ function WeatherForecast({
                     {visual.icon}
                   </span>
                   <p className="weather-condition">
-                    {weatherLabels[day.weatherCode] ?? "Variable conditions"}
+                    {weatherLabelKeys[day.weatherCode]
+                      ? t(`weather.codes.${weatherLabelKeys[day.weatherCode]}`)
+                      : t("weather.variable")}
                   </p>
                   <p className="weather-temperature">
                     <strong>
@@ -192,15 +186,15 @@ function WeatherForecast({
                   <p className="weather-precipitation">
                     <span aria-hidden="true">💧</span>
                     {day.source === "forecast"
-                      ? `${day.precipitationProbability}% precipitation`
-                      : `Rain on ${day.precipitationProbability}% of historical days`}
+                      ? t("weather.precipitation", { value: day.precipitationProbability })
+                      : t("weather.historicalRain", { value: day.precipitationProbability })}
                   </p>
                 </article>
               );
             })}
           </div>
           <small className="weather-attribution">
-            Weather data by{" "}
+            {t("weather.source")}{" "}
             <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
               Open-Meteo.com
             </a>

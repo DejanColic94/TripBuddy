@@ -43,7 +43,7 @@ export const getUserTripRole = (trip: Trip, userId?: number | null): TripRole | 
   return isTripRole(participantRole) ? participantRole : null;
 };
 
-export const formatTripDate = (value: string | null) => {
+export const formatTripDate = (value: string | null, locale = "en-US") => {
   if (!value) {
     return "-";
   }
@@ -54,7 +54,7 @@ export const formatTripDate = (value: string | null) => {
     return value;
   }
 
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(locale, {
     month: "short",
     day: "numeric",
     year: "numeric",
