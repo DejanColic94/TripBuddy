@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import WeatherForecast from "../components/WeatherForecast";
 import { API_BASE_URL } from "../config/api";
 import { useExpenseConversion } from "../hooks/useExpenseConversion";
 import { formatTripDate } from "../types/trip";
+import { getFormattingLocale } from "../i18n";
 
 type GuestExpense = {
   id: number;
@@ -33,9 +35,9 @@ type GuestTrip = {
 const displayCurrencies = ["EUR", "USD", "GBP", "CHF", "RSD", "CAD", "AUD", "JPY"];
 const emptyExpenses: GuestExpense[] = [];
 
-function formatExpenseAmount(amount: number, currency: string) {
+function formatExpenseAmount(amount: number, currency: string, locale: string) {
   try {
-    return new Intl.NumberFormat("en", {
+    return new Intl.NumberFormat(locale, {
       style: "currency",
       currency,
     }).format(amount);
@@ -60,6 +62,8 @@ function getTripDuration(startDate: string | null, endDate: string | null) {
 }
 
 function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () => void }) {
+  const { i18n, t } = useTranslation();
+  const formattingLocale = getFormattingLocale(i18n.resolvedLanguage);
   const [data, setData] = useState<GuestTrip | null>(null);
   const [error, setError] = useState("");
   const [displayCurrency, setDisplayCurrency] = useState("EUR");
@@ -80,7 +84,7 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) {
-          throw new Error(body.error || "Failed to load guest trip");
+          throw new Error(body.error || t("guest.loadFailed"));
         }
         if (active) {
           setData(body as GuestTrip);
@@ -88,24 +92,24 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
       })
       .catch((reason: unknown) => {
         if (active) {
-          setError(reason instanceof Error ? reason.message : "Failed to load guest trip");
+          setError(reason instanceof Error ? reason.message : t("guest.loadFailed"));
         }
       });
 
     return () => {
       active = false;
     };
-  }, [guestToken]);
+  }, [guestToken, t]);
 
   if (error) {
     return (
       <section className="page guest-trip-state-page">
         <section className="panel guest-trip-state-card">
-          <p className="eyebrow">Guest access unavailable</p>
-          <h1>Unable to open this trip</h1>
+          <p className="eyebrow">{t("guest.unavailable")}</p>
+          <h1>{t("guest.unableToOpen")}</h1>
           <p className="error">{error}</p>
           <button className="secondary-button" type="button" onClick={onExit}>
-            Back to home
+            {t("common.backToHome")}
           </button>
         </section>
       </section>
@@ -116,9 +120,9 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
     return (
       <section className="page guest-trip-state-page">
         <section className="panel guest-trip-state-card">
-          <p className="eyebrow">TripBuddy guest access</p>
-          <h1>Opening your shared trip...</h1>
-          <p className="loading-state">Gathering the itinerary and expenses.</p>
+          <p className="eyebrow">{t("guest.access")}</p>
+          <h1>{t("guest.opening")}</h1>
+          <p className="loading-state">{t("guest.gathering")}</p>
         </section>
       </section>
     );
@@ -128,36 +132,36 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
   const singleExpenseCurrency = currencies.length === 1 ? currencies[0] : null;
   const displayedTotal =
     convertedTotal !== null
-      ? formatExpenseAmount(convertedTotal, displayCurrency)
+      ? formatExpenseAmount(convertedTotal, displayCurrency, formattingLocale)
       : singleExpenseCurrency
-        ? formatExpenseAmount(subtotals[singleExpenseCurrency], singleExpenseCurrency)
-        : "Mixed currencies";
+        ? formatExpenseAmount(subtotals[singleExpenseCurrency], singleExpenseCurrency, formattingLocale)
+        : t("details.mixedCurrencies");
 
   return (
     <section className="page trip-details-page guest-trip-page">
       <div className="details-hero">
         <div>
-          <p className="eyebrow">Read-only guest access</p>
+          <p className="eyebrow">{t("guest.readOnly")}</p>
           <h1>{data.trip.name}</h1>
           <p className="trip-description">
-            {data.trip.description || "No description added yet."}
+            {data.trip.description || t("details.noDescription")}
           </p>
           <div className="guest-access-badges">
-            <span className="trip-role-badge trip-role-guest">Guest access</span>
-            <span className="guest-name-badge">Viewing as {data.guest.displayName}</span>
+            <span className="trip-role-badge trip-role-guest">{t("guest.accessBadge")}</span>
+            <span className="guest-name-badge">{t("guest.viewingAs", { name: data.guest.displayName })}</span>
           </div>
         </div>
         <div className="details-actions">
           <button className="secondary-button" type="button" onClick={onExit}>
-            Back to home
+            {t("common.backToHome")}
           </button>
         </div>
       </div>
 
-      <nav className="trip-section-nav" aria-label="Trip sections">
-        <a href="#guest-trip-overview">Overview</a>
-        <a href="#guest-trip-itinerary">Itinerary</a>
-        <a href="#guest-trip-budget">Budget</a>
+      <nav className="trip-section-nav" aria-label={t("details.sections")}>
+        <a href="#guest-trip-overview">{t("details.overview")}</a>
+        <a href="#guest-trip-itinerary">{t("details.itinerary")}</a>
+        <a href="#guest-trip-budget">{t("details.budget")}</a>
       </nav>
 
       <section
@@ -168,8 +172,8 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">01</span>
           <div>
-            <h2 id="guest-trip-overview-heading">Overview</h2>
-            <p>Destination, dates, weather, and the trip at a glance.</p>
+            <h2 id="guest-trip-overview-heading">{t("details.overview")}</h2>
+            <p>{t("details.overviewDescription")}</p>
           </div>
         </header>
 
@@ -181,32 +185,32 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
 
         <div className="details-layout">
         <section className="panel trip-info-card">
-          <p className="eyebrow">Overview</p>
+          <p className="eyebrow">{t("details.overview")}</p>
           <h2>{data.trip.name}</h2>
-          <p>{data.trip.description || "No description added yet."}</p>
+          <p>{data.trip.description || t("details.noDescription")}</p>
           <p className="guest-access-note">
-            You can review this trip, but only signed-in trip members can make changes.
+            {t("guest.note")}
           </p>
         </section>
 
         <section className="panel metadata-card">
-          <h2>Trip metadata</h2>
+          <h2>{t("details.metadata")}</h2>
           <dl className="metadata-list">
             <div>
-              <dt>Destination</dt>
+              <dt>{t("details.destination")}</dt>
               <dd>{data.trip.destination || "-"}</dd>
             </div>
             <div>
-              <dt>Start date</dt>
-              <dd>{formatTripDate(data.trip.startDate)}</dd>
+              <dt>{t("details.startDate")}</dt>
+              <dd>{formatTripDate(data.trip.startDate, formattingLocale)}</dd>
             </div>
             <div>
-              <dt>End date</dt>
-              <dd>{formatTripDate(data.trip.endDate)}</dd>
+              <dt>{t("details.endDate")}</dt>
+              <dd>{formatTripDate(data.trip.endDate, formattingLocale)}</dd>
             </div>
             <div>
-              <dt>Guest access expires</dt>
-              <dd>{formatTripDate(data.guest.expiresAt)}</dd>
+              <dt>{t("guest.expires")}</dt>
+              <dd>{formatTripDate(data.guest.expiresAt, formattingLocale)}</dd>
             </div>
           </dl>
         </section>
@@ -214,23 +218,23 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
 
         <section className="summary-section">
         <div className="section-heading">
-          <h2>Trip summary</h2>
+          <h2>{t("details.summary")}</h2>
         </div>
         <div className="summary-grid">
           <article className="summary-card">
-            <p>Duration</p>
-            <strong>{duration === null ? "Unscheduled" : `${duration} days`}</strong>
+            <p>{t("details.duration")}</p>
+            <strong>{duration === null ? t("details.unscheduled") : t("details.days", { count: duration })}</strong>
           </article>
           <article className="summary-card">
-            <p>Itinerary Items</p>
+            <p>{t("details.itineraryItems")}</p>
             <strong>{data.itinerary.length}</strong>
           </article>
           <article className="summary-card">
-            <p>Total Expenses</p>
-            <strong>{isConversionLoading ? "Converting..." : displayedTotal}</strong>
+            <p>{t("details.totalExpenses")}</p>
+            <strong>{isConversionLoading ? t("details.converting") : displayedTotal}</strong>
           </article>
           <article className="summary-card">
-            <p>Expense Count</p>
+            <p>{t("details.expenseCount")}</p>
             <strong>{data.expenses.length}</strong>
           </article>
         </div>
@@ -245,28 +249,28 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">02</span>
           <div>
-            <h2 id="guest-trip-itinerary-heading">Itinerary</h2>
-            <p>Plans, bookings, and scheduled activities in one timeline.</p>
+            <h2 id="guest-trip-itinerary-heading">{t("details.itinerary")}</h2>
+            <p>{t("details.itineraryDescription")}</p>
           </div>
         </header>
 
         <div className="itinerary-layout read-only-content-layout">
         <section className="itinerary-section">
           <div className="section-heading">
-            <h3>Scheduled items</h3>
-            <span>{data.itinerary.length} total</span>
+            <h3>{t("details.scheduledItems")}</h3>
+            <span>{t("common.total", { count: data.itinerary.length })}</span>
           </div>
 
           {data.itinerary.length === 0 ? (
-            <p className="empty-state">No itinerary items yet.</p>
+            <p className="empty-state">{t("details.noItinerary")}</p>
           ) : (
             <ul className="itinerary-list">
               {data.itinerary.map((item) => (
                 <li className="itinerary-item" key={item.id}>
-                  <div className="itinerary-date">{formatTripDate(item.scheduledDate)}</div>
+                  <div className="itinerary-date">{formatTripDate(item.scheduledDate, formattingLocale)}</div>
                   <div className="itinerary-card">
                     <strong>{item.title}</strong>
-                    <p>{item.description || "No description"}</p>
+                    <p>{item.description || t("trips.noDescriptionShort")}</p>
                   </div>
                 </li>
               ))}
@@ -284,8 +288,8 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
         <header className="trip-content-section-header">
           <span className="trip-section-number" aria-hidden="true">03</span>
           <div>
-            <h2 id="guest-trip-budget-heading">Budget</h2>
-            <p>Converted totals and the complete cost list.</p>
+            <h2 id="guest-trip-budget-heading">{t("details.budget")}</h2>
+            <p>{t("details.guestBudgetDescription")}</p>
           </div>
         </header>
 
@@ -294,11 +298,11 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
           <div className="expense-total-card">
             <div className="expense-total-heading">
               <div>
-                <p className="eyebrow">Estimated total</p>
-                <strong>{isConversionLoading ? "Converting..." : displayedTotal}</strong>
+                <p className="eyebrow">{t("details.estimatedTotal")}</p>
+                <strong>{isConversionLoading ? t("details.converting") : displayedTotal}</strong>
               </div>
               <label className="conversion-currency">
-                Display currency
+                {t("details.displayCurrency")}
                 <select
                   value={displayCurrency}
                   onChange={(event) => setDisplayCurrency(event.target.value)}
@@ -313,36 +317,35 @@ function GuestTripPage({ guestToken, onExit }: { guestToken: string; onExit: () 
             </div>
             {currencies.length > 0 ? (
               <p className="expense-subtotals">
-                Original totals:{" "}
-                {currencies
-                  .map((currency) => formatExpenseAmount(subtotals[currency], currency))
-                  .join(" · ")}
+                {t("details.originalTotals", { totals: currencies
+                  .map((currency) => formatExpenseAmount(subtotals[currency], currency, formattingLocale))
+                  .join(" · ") })}
               </p>
             ) : null}
             {rateDate ? (
               <p className="conversion-note">
-                Approximate reference rates for {rateDate} · Frankfurter
+                {t("details.ratesNote", { date: rateDate })}
               </p>
             ) : null}
             {conversionError ? <p className="error conversion-error">{conversionError}</p> : null}
           </div>
 
           <div className="section-heading">
-            <h2>Expenses</h2>
-            <span>{data.expenses.length} total</span>
+            <h2>{t("details.expenses")}</h2>
+            <span>{t("common.total", { count: data.expenses.length })}</span>
           </div>
 
           {data.expenses.length === 0 ? (
-            <p className="empty-state">No expenses yet.</p>
+            <p className="empty-state">{t("details.noExpenses")}</p>
           ) : (
             <ul className="expense-list">
               {data.expenses.map((expense) => (
                 <li className="expense-card" key={expense.id}>
                   <div>
                     <strong>{expense.title}</strong>
-                    <p>{expense.category || "Uncategorized"}</p>
+                    <p>{expense.category || t("details.uncategorized")}</p>
                   </div>
-                  <span>{formatExpenseAmount(expense.amount, expense.currency)}</span>
+                  <span>{formatExpenseAmount(expense.amount, expense.currency, formattingLocale)}</span>
                 </li>
               ))}
             </ul>

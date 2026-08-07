@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 
 type ResetPasswordPageProps = {
@@ -12,6 +13,7 @@ function ResetPasswordPage({
   onBackToLogin,
   onResetSuccess,
 }: ResetPasswordPageProps) {
+  const { t } = useTranslation();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -24,22 +26,22 @@ function ResetPasswordPage({
     const trimmedToken = resetToken.trim();
 
     if (!trimmedToken) {
-      setError("Reset link is invalid or has expired");
+      setError(t("auth.invalidResetLink"));
       return;
     }
 
     if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters");
+      setError(t("auth.newPasswordMin"));
       return;
     }
 
     if (new TextEncoder().encode(newPassword).length > 72) {
-      setError("New password must be 72 bytes or fewer");
+      setError(t("auth.newPasswordMaxBytes"));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError("New passwords do not match");
+      setError(t("auth.newPasswordsMismatch"));
       return;
     }
 
@@ -59,13 +61,13 @@ function ResetPasswordPage({
       const data = (await response.json()) as { message?: string };
 
       if (!response.ok) {
-        setError(data.message || "Failed to reset password");
+        setError(data.message || t("auth.resetFailed"));
         return;
       }
 
       onResetSuccess();
     } catch {
-      setError("Failed to reset password");
+      setError(t("auth.resetFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -74,21 +76,21 @@ function ResetPasswordPage({
   return (
     <div className="auth-layout">
       <div className="brand-panel">
-        <p className="eyebrow">TripBuddy</p>
-        <h1>Choose a new password.</h1>
-        <p>Your reset link can be used only once and expires after 30 minutes.</p>
+        <p className="eyebrow">{t("common.appName")}</p>
+        <h1>{t("auth.choosePassword")}</h1>
+        <p>{t("auth.resetLinkDescription")}</p>
       </div>
 
       <div className="auth-column">
         <section className="page auth-card">
           <div>
-            <p className="eyebrow">Account recovery</p>
-            <h2>Reset password</h2>
+            <p className="eyebrow">{t("auth.accountRecovery")}</p>
+            <h2>{t("auth.resetPassword")}</h2>
           </div>
 
           <form className="form-stack" onSubmit={handleSubmit}>
             <label>
-              New password
+              {t("auth.newPassword")}
               <input
                 type="password"
                 value={newPassword}
@@ -100,7 +102,7 @@ function ResetPasswordPage({
             </label>
 
             <label>
-              Confirm new password
+              {t("auth.confirmNewPassword")}
               <input
                 type="password"
                 value={confirmPassword}
@@ -112,14 +114,14 @@ function ResetPasswordPage({
             </label>
 
             <button className="primary-button" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Resetting..." : "Reset password"}
+              {isSubmitting ? t("auth.resetting") : t("auth.resetPassword")}
             </button>
           </form>
 
           {error ? <p className="error">{error}</p> : null}
 
           <button className="link-button auth-switch" type="button" onClick={onBackToLogin}>
-            Back to login
+            {t("common.backToLogin")}
           </button>
         </section>
       </div>

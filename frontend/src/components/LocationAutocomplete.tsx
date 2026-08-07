@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { searchLocations } from "../api/locations";
 import type { LocationSearchResult } from "../types/location";
 
@@ -12,13 +13,14 @@ type LocationAutocompleteProps = {
 };
 
 function LocationAutocomplete({
-  label = "Destination",
+  label,
   query,
   selectedLocation,
   onQueryChange,
   onSelectionChange,
   required = false,
 }: LocationAutocompleteProps) {
+  const { t } = useTranslation();
   const inputId = useId();
   const listId = `${inputId}-locations`;
   const [locations, setLocations] = useState<LocationSearchResult[]>([]);
@@ -59,7 +61,7 @@ function LocationAutocomplete({
         setError(
           searchError instanceof Error
             ? searchError.message
-            : "Unable to search destinations"
+            : t("location.searchFailed")
         );
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
@@ -70,7 +72,7 @@ function LocationAutocomplete({
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [query, selectedLocation]);
+  }, [query, selectedLocation, t]);
 
   const selectLocation = (location: LocationSearchResult) => {
     onQueryChange(location.displayName);
@@ -103,7 +105,7 @@ function LocationAutocomplete({
 
   return (
     <div className="location-autocomplete">
-      <label htmlFor={inputId}>{label}</label>
+      <label htmlFor={inputId}>{label ?? t("location.destination")}</label>
       <div className="location-input-wrapper">
         <input
           id={inputId}
@@ -115,7 +117,7 @@ function LocationAutocomplete({
             activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined
           }
           autoComplete="off"
-          placeholder="Start typing a city or place"
+          placeholder={t("location.placeholder")}
           value={query}
           required={required}
           onChange={(event) => {
@@ -131,7 +133,7 @@ function LocationAutocomplete({
           onKeyDown={handleKeyDown}
         />
 
-        {isLoading ? <span className="location-search-spinner">Searching...</span> : null}
+        {isLoading ? <span className="location-search-spinner">{t("location.searching")}</span> : null}
 
         {isOpen ? (
           <ul className="location-results" id={listId} role="listbox">
@@ -156,13 +158,13 @@ function LocationAutocomplete({
                 </li>
               ))
             ) : (
-              <li className="location-search-empty">No matching locations found.</li>
+              <li className="location-search-empty">{t("location.noMatches")}</li>
             )}
           </ul>
         ) : null}
       </div>
       {error ? <p className="location-search-error">{error}</p> : null}
-      <p className="location-attribution">Location data by GeoNames via Open-Meteo</p>
+      <p className="location-attribution">{t("location.attribution")}</p>
     </div>
   );
 }

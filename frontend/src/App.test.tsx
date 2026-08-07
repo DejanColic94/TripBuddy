@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import i18n, { LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Trip, TripRole } from "./types/trip";
 
 type MockResponseBody = Record<string, unknown> | Array<Record<string, unknown>>;
@@ -162,8 +163,10 @@ function setAuthenticatedSession() {
   localStorage.setItem("user", JSON.stringify(authUser));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
+  await i18n.changeLanguage("en");
+  localStorage.removeItem(LANGUAGE_STORAGE_KEY);
   delete document.documentElement.dataset.theme;
   document.documentElement.style.colorScheme = "";
   window.history.pushState({}, "", "/");
@@ -175,6 +178,31 @@ afterEach(() => {
 });
 
 describe("TripBuddy frontend", () => {
+  it("switches to Serbian and saves the language preference", async () => {
+    const user = userEvent.setup();
+    mockDefaultApi();
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Switch language to Serbian" }));
+
+    expect(screen.getByRole("heading", { name: "Prijava" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("sr-Latn");
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("sr");
+  });
+
+  it("switches back to English", async () => {
+    const user = userEvent.setup();
+    await i18n.changeLanguage("sr");
+    mockDefaultApi();
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Promeni jezik na Engleski" }));
+
+    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en");
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
+  });
+
   it("uses the system theme when no preference has been saved", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
     mockDefaultApi();

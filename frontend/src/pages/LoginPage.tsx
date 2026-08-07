@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 import type { AuthUser } from "../types/auth";
 
@@ -21,6 +22,7 @@ function LoginPage({
   onVerificationRequired,
   notice,
 }: LoginPageProps) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -51,13 +53,13 @@ function LoginPage({
       }
 
       if (!response.ok || !data.token || !data.user) {
-        setError(data.message ?? "Login failed");
+        setError(data.message ?? t("auth.loginFailed"));
         return;
       }
 
       onLogin(data.token, data.user);
     } catch {
-      setError("Login failed");
+      setError(t("auth.loginFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -66,15 +68,15 @@ function LoginPage({
   return (
     <section className="page auth-card">
       <div>
-        <p className="eyebrow">Welcome back</p>
-        <h2>Login</h2>
+        <p className="eyebrow">{t("auth.welcomeBack")}</p>
+        <h2>{t("auth.login")}</h2>
       </div>
 
       {notice ? <p className="success">{notice}</p> : null}
 
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
-          Email
+          {t("common.email")}
           <input
             type="email"
             value={email}
@@ -84,7 +86,7 @@ function LoginPage({
         </label>
 
         <label>
-          Password
+          {t("common.password")}
           <input
             type="password"
             value={password}
@@ -94,7 +96,7 @@ function LoginPage({
         </label>
 
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Logging in..." : "Login"}
+          {isSubmitting ? t("auth.loggingIn") : t("auth.login")}
         </button>
       </form>
 
@@ -103,7 +105,7 @@ function LoginPage({
         type="button"
         onClick={onForgotPassword}
       >
-        Forgot password?
+        {t("auth.forgotPassword")}
       </button>
 
       {error ? <p className="error">{error}</p> : null}

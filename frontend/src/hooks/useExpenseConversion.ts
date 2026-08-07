@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "../config/api";
 
 type ConvertibleExpense = {
@@ -15,6 +16,7 @@ export function useExpenseConversion(
   expenses: ConvertibleExpense[],
   conversionCurrency: string
 ) {
+  const { t } = useTranslation();
   const [convertedTotal, setConvertedTotal] = useState<number | null>(null);
   const [rateDate, setRateDate] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -67,7 +69,7 @@ export function useExpenseConversion(
 
             if (!response.ok || !("convertedAmount" in data)) {
               throw new Error(
-                ("error" in data && data.error) || "Failed to convert expenses"
+                ("error" in data && data.error) || t("details.messages.conversionFailed")
               );
             }
 
@@ -97,7 +99,7 @@ export function useExpenseConversion(
         setError(
           conversionError instanceof Error
             ? conversionError.message
-            : "Failed to convert expenses"
+            : t("details.messages.conversionFailed")
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -108,7 +110,7 @@ export function useExpenseConversion(
 
     void loadConvertedTotal();
     return () => controller.abort();
-  }, [conversionCurrency, currencies, subtotals]);
+  }, [conversionCurrency, currencies, subtotals, t]);
 
   return {
     convertedTotal,

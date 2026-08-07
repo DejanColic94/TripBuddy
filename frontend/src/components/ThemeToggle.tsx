@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { Theme } from "../hooks/useTheme";
 
 type ThemeToggleProps = {
@@ -6,14 +7,15 @@ type ThemeToggleProps = {
 };
 
 function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
+  const { t } = useTranslation();
   const isDark = theme === "dark";
-  const nextTheme = isDark ? "light" : "dark";
+  const nextTheme = t(isDark ? "theme.light" : "theme.dark");
 
   return (
     <button
       className="theme-toggle"
       type="button"
-      aria-label={`Switch to ${nextTheme} mode`}
+      aria-label={t("theme.switchTo", { theme: nextTheme.toLocaleLowerCase() })}
       aria-pressed={isDark}
       onClick={onToggle}
     >
@@ -27,7 +29,7 @@ function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
           <path d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z" />
         </svg>
       )}
-      <span>{isDark ? "Light mode" : "Dark mode"}</span>
+      <span>{nextTheme}</span>
     </button>
   );
 }

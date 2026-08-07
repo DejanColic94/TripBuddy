@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import LocationAutocomplete from "../components/LocationAutocomplete";
 import { API_BASE_URL } from "../config/api";
 import type { AuthUser } from "../types/auth";
 import type { LocationSearchResult } from "../types/location";
 import { formatTripDate, type Trip } from "../types/trip";
+import { getFormattingLocale } from "../i18n";
 
 type TripsPageProps = {
   token: string;
@@ -22,6 +24,8 @@ function TripsPage({
   onOpenProfile,
   onSelectTrip,
 }: TripsPageProps) {
+  const { i18n, t } = useTranslation();
+  const formattingLocale = getFormattingLocale(i18n.resolvedLanguage);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -52,18 +56,18 @@ function TripsPage({
       }
 
       if (!response.ok) {
-        setError("Failed to load trips");
+        setError(t("trips.loadFailed"));
         return;
       }
 
       const data = (await response.json()) as Trip[];
       setTrips(data);
     } catch {
-      setError("Failed to load trips");
+      setError(t("trips.loadFailed"));
     } finally {
       setIsLoading(false);
     }
-  }, [onUnauthorized, token]);
+  }, [onUnauthorized, t, token]);
 
   useEffect(() => {
     void loadTrips();
@@ -75,15 +79,15 @@ function TripsPage({
     setSuccessMessage("");
 
     if (!selectedDestination) {
-      setError("Choose a destination from the search results");
+      setError(t("trips.chooseDestination"));
       return;
     }
     if (!startDate || !endDate) {
-      setError("Start date and end date are required");
+      setError(t("trips.dateRangeRequired"));
       return;
     }
     if (startDate > endDate) {
-      setError("Start date must not be after end date");
+      setError(t("trips.startAfterEnd"));
       return;
     }
 
@@ -118,7 +122,7 @@ function TripsPage({
       const data = (await response.json()) as CreateTripResponse;
 
       if (!response.ok || !("id" in data)) {
-        setError(("error" in data && data.error) || "Failed to create trip");
+        setError(("error" in data && data.error) || t("trips.createFailed"));
         return;
       }
 
@@ -129,9 +133,9 @@ function TripsPage({
       setSelectedDestination(null);
       setStartDate("");
       setEndDate("");
-      setSuccessMessage("Trip created");
+      setSuccessMessage(t("trips.created"));
     } catch {
-      setError("Failed to create trip");
+      setError(t("trips.createFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -141,30 +145,30 @@ function TripsPage({
     <section className="page trips-page">
       <div className="page-header">
         <div>
-          <p className="eyebrow">TripBuddy</p>
-          <h1>Your trips</h1>
-          <p className="page-subtitle">Shape the details now, enjoy the journey later.</p>
+          <p className="eyebrow">{t("trips.eyebrow")}</p>
+          <h1>{t("trips.title")}</h1>
+          <p className="page-subtitle">{t("trips.subtitle")}</p>
           {currentUser ? (
-            <p className="current-user">Signed in as <strong>{currentUser.name}</strong></p>
+            <p className="current-user">{t("trips.signedInAsLabel")} <strong>{currentUser.name}</strong></p>
           ) : null}
         </div>
         <div className="header-actions">
           <button className="secondary-button" type="button" onClick={onOpenProfile}>
-            My Profile
+            {t("trips.profile")}
           </button>
           <button className="secondary-button" type="button" onClick={onUnauthorized}>
-            Logout
+            {t("trips.logout")}
           </button>
         </div>
       </div>
 
       <div className="trips-layout">
         <section className="panel create-trip-card">
-          <h2>Create a trip</h2>
+          <h2>{t("trips.createTitle")}</h2>
 
           <form className="form-stack" onSubmit={handleSubmit}>
             <label>
-              Name
+              {t("common.name")}
               <input
                 value={name}
                 maxLength={255}
@@ -174,7 +178,7 @@ function TripsPage({
             </label>
 
             <label>
-              Description
+              {t("trips.description")}
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -192,7 +196,7 @@ function TripsPage({
 
             <div className="date-inputs">
               <label>
-                Start date
+                {t("trips.startDate")}
                 <input
                   type="date"
                   value={startDate}
@@ -203,7 +207,7 @@ function TripsPage({
               </label>
 
               <label>
-                End date
+                {t("trips.endDate")}
                 <input
                   type="date"
                   value={endDate}
@@ -215,7 +219,7 @@ function TripsPage({
             </div>
 
             <button className="primary-button" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Creating..." : "Create trip"}
+              {isSubmitting ? t("trips.creating") : t("trips.create")}
             </button>
           </form>
 
@@ -225,16 +229,15 @@ function TripsPage({
 
         <section className="trip-list-section">
           <div className="section-heading">
-            <h2>Saved trips</h2>
-            <span>{trips.length} total</span>
+            <h2>{t("trips.savedTrips")}</h2>
+            <span>{t("common.total", { count: trips.length })}</span>
           </div>
 
-          {isLoading ? <p className="loading-state">Gathering your trips...</p> : null}
+          {isLoading ? <p className="loading-state">{t("trips.loading")}</p> : null}
 
           {!isLoading && trips.length === 0 ? (
             <p className="empty-state">
-              No trips saved yet. Create your first plan and it will appear here with dates,
-              notes, and the little details worth remembering.
+              {t("trips.empty")}
             </p>
           ) : null}
 
@@ -256,19 +259,19 @@ function TripsPage({
                 >
                   <div>
                     <strong>{trip.name}</strong>
-                    <p>{trip.description || "No description"}</p>
+                    <p>{trip.description || t("trips.noDescriptionShort")}</p>
                   </div>
                   <div className="trip-dates">
-                    <span>Start: {formatTripDate(trip.startDate)}</span>
-                    <span>End: {formatTripDate(trip.endDate)}</span>
+                    <span>{t("trips.cardStart", { date: formatTripDate(trip.startDate, formattingLocale) })}</span>
+                    <span>{t("trips.cardEnd", { date: formatTripDate(trip.endDate, formattingLocale) })}</span>
                   </div>
                   {trip.participants && trip.participants.length > 0 ? (
-                    <div className="trip-card-participants" aria-label={`${trip.name} participants`}>
-                      <p>Participants</p>
+                    <div className="trip-card-participants" aria-label={t("trips.participantCount", { count: trip.participants.length })}>
+                      <p>{t("trips.participants")}</p>
                       <div>
                         {trip.participants.map((participant) => (
                           <span key={`${trip.id}-${participant.userId}`}>
-                            {participant.name || `User #${participant.userId}`} · {participant.role}
+                            {participant.name || t("common.userFallback", { id: participant.userId })} · {t(`roles.${participant.role}`)}
                           </span>
                         ))}
                       </div>
